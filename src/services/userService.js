@@ -1,4 +1,4 @@
-const API_BASE_URL = "/rest/v1/savings";
+const API_BASE_URL = `${import.meta.env.VITE_API_URL || ""}/rest/v1/savings`;
 
 function authHeaders() {
   const token = localStorage.getItem("token");

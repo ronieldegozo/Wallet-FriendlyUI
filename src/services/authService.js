@@ -1,4 +1,4 @@
-const API_BASE_URL = "/rest/v1";
+const API_BASE_URL = `${import.meta.env.VITE_API_URL || ""}/rest/v1`;
 
 /** Safely parse JSON — returns null if body is empty or not JSON. */
 async function safeJson(response) {
