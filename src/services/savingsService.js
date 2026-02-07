@@ -8,6 +8,13 @@ function authHeaders() {
   };
 }
 
+/** Safely parse JSON — returns null if body is empty or not JSON. */
+async function safeJson(response) {
+  const text = await response.text();
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return null; }
+}
+
 /** Extract the most useful error message from backend error responses. */
 function extractError(data, fallback) {
   if (data?.error?.details) return data.error.details;
@@ -25,8 +32,9 @@ export async function getAllSavings() {
     method: "GET",
     headers: authHeaders(),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(extractError(data, "Failed to fetch savings."));
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
   return data;
 }
 
@@ -38,8 +46,9 @@ export async function getUserSavingsById(userId) {
     method: "GET",
     headers: authHeaders(),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(extractError(data, "Failed to fetch user savings."));
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
   return data;
 }
 
@@ -53,8 +62,9 @@ export async function deposit(categoryId, userId, amount, note) {
     headers: authHeaders(),
     body: JSON.stringify({ userId, amount: Number(amount), note }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(extractError(data, "Deposit failed."));
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
   return data;
 }
 
@@ -74,8 +84,9 @@ export async function withdraw(userId, categoryId, withdrawAmount, date, note) {
       note,
     }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(extractError(data, "Withdrawal failed."));
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
   return data;
 }
 
@@ -89,8 +100,9 @@ export async function createCategory(userId, name, amount, type) {
     headers: authHeaders(),
     body: JSON.stringify({ name, amount: Number(amount) || 0, type }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(extractError(data, "Failed to create category."));
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
   return data;
 }
 
@@ -104,8 +116,9 @@ export async function updateCategory(userId, categoryId, name, amount, type) {
     headers: authHeaders(),
     body: JSON.stringify({ name, amount: Number(amount) || 0, type }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(extractError(data, "Failed to update category."));
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
   return data;
 }
 
@@ -117,8 +130,9 @@ export async function deleteCategory(userId, categoryId) {
     method: "DELETE",
     headers: authHeaders(),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(extractError(data, "Failed to delete category."));
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
   return data;
 }
 
@@ -130,7 +144,8 @@ export async function getTransactionHistory(userId) {
     method: "GET",
     headers: authHeaders(),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(extractError(data, "Failed to fetch transactions."));
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
   return data;
 }

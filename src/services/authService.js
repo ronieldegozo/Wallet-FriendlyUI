@@ -1,5 +1,12 @@
 const API_BASE_URL = "/rest/v1";
 
+/** Safely parse JSON — returns null if body is empty or not JSON. */
+async function safeJson(response) {
+  const text = await response.text();
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return null; }
+}
+
 /** Extract the most useful error message from backend error responses. */
 function extractError(data, fallback) {
   if (data?.error?.details) return data.error.details;
@@ -17,11 +24,12 @@ export async function loginUser(email, password) {
     body: JSON.stringify({ email, password }),
   });
 
-  const data = await response.json();
+  const data = await safeJson(response);
 
   if (!response.ok) {
     throw new Error(extractError(data, "Login failed. Please try again."));
   }
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
 
   return data;
 }
@@ -41,11 +49,12 @@ export async function changePassword(currentPassword, newPassword, confirmPasswo
     body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
   });
 
-  const data = await response.json();
+  const data = await safeJson(response);
 
   if (!response.ok) {
     throw new Error(extractError(data, "Failed to change password."));
   }
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
 
   return data;
 }

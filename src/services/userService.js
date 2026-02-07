@@ -8,6 +8,13 @@ function authHeaders() {
   };
 }
 
+/** Safely parse JSON — returns null if body is empty or not JSON. */
+async function safeJson(response) {
+  const text = await response.text();
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return null; }
+}
+
 /** Extract the most useful error message from backend error responses. */
 function extractError(data, fallback) {
   if (data?.error?.details) return data.error.details;
@@ -24,8 +31,9 @@ export async function getAllUsers() {
     method: "GET",
     headers: authHeaders(),
   });
-  const data = await response.json();
+  const data = await safeJson(response);
   if (!response.ok) throw new Error(extractError(data, "Failed to fetch users."));
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
   return data;
 }
 
@@ -37,8 +45,9 @@ export async function getUserById(userId) {
     method: "GET",
     headers: authHeaders(),
   });
-  const data = await response.json();
+  const data = await safeJson(response);
   if (!response.ok) throw new Error(extractError(data, "Failed to fetch user."));
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
   return data;
 }
 
@@ -52,8 +61,9 @@ export async function createUser(userData) {
     headers: authHeaders(),
     body: JSON.stringify(userData),
   });
-  const data = await response.json();
+  const data = await safeJson(response);
   if (!response.ok) throw new Error(extractError(data, "Failed to create user."));
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
   return data;
 }
 
@@ -67,8 +77,9 @@ export async function updateUser(userId, userData) {
     headers: authHeaders(),
     body: JSON.stringify(userData),
   });
-  const data = await response.json();
+  const data = await safeJson(response);
   if (!response.ok) throw new Error(extractError(data, "Failed to update user."));
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
   return data;
 }
 
@@ -80,7 +91,8 @@ export async function deleteUser(userId) {
     method: "DELETE",
     headers: authHeaders(),
   });
-  const data = await response.json();
+  const data = await safeJson(response);
   if (!response.ok) throw new Error(extractError(data, "Failed to delete user."));
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.");
   return data;
 }
