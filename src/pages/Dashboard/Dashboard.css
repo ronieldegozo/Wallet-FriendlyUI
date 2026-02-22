@@ -253,6 +253,73 @@
    QUICK ACTION BUTTONS
    ══════════════════════════════════════ */
 
+/* ── Financial Tip Banner ── */
+.tip-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+  background: linear-gradient(135deg, rgba(34,197,94,0.08) 0%, rgba(96,165,250,0.08) 100%);
+  border: 1px solid rgba(34,197,94,0.2);
+  border-radius: 12px;
+  animation: tipFadeIn 0.5s ease;
+}
+@keyframes tipFadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.tip-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(34,197,94,0.15);
+  border-radius: 50%;
+  color: #22c55e;
+}
+.tip-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.tip-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #22c55e;
+}
+.tip-text {
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  line-height: 1.45;
+  font-style: italic;
+}
+.tip-author {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-top: 0.1rem;
+}
+.tip-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-faded);
+  cursor: pointer;
+  padding: 0.2rem;
+  border-radius: 6px;
+  transition: color 0.2s, background 0.2s;
+}
+.tip-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
 .quick-actions {
   display: flex;
   gap: 0.75rem;

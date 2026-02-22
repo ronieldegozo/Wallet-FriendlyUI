@@ -54,6 +54,8 @@ function fmtCurrency(n) {
 
 const PIE_COLORS = ["#22c55e","#60a5fa","#f59e0b","#c084fc","#f87171","#2dd4bf","#fb923c","#818cf8"];
 
+const QUOTE_API_URL = "https://dummyjson.com/quotes/random";
+
 /* ── Greeting based on time of day ── */
 function getGreeting() {
   const h = new Date().getHours();
@@ -125,6 +127,10 @@ export default function Dashboard() {
   const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
 
+  /* ── Financial Tip (fetched from API, auto-dismiss after 30s) ── */
+  const [dailyTip, setDailyTip] = useState(null);
+  const [showTip, setShowTip] = useState(true);
+
   /* ── Transaction filters ── */
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState("all");
@@ -134,11 +140,19 @@ export default function Dashboard() {
   useEffect(() => {
     setAvailableTypes(getCategoryTypes());
     if (userId) loadData();
+    fetch(QUOTE_API_URL)
+      .then((res) => res.json())
+      .then((data) => setDailyTip({ quote: data.quote, author: data.author }))
+      .catch(() => setDailyTip(null));
   }, [userId]);
 
   useEffect(() => {
     if (success) { const t = setTimeout(() => setSuccess(""), 4000); return () => clearTimeout(t); }
   }, [success]);
+
+  useEffect(() => {
+    if (showTip) { const t = setTimeout(() => setShowTip(false), 30000); return () => clearTimeout(t); }
+  }, [showTip]);
 
   async function loadData() {
     setLoading(true); setError("");
@@ -368,6 +382,23 @@ export default function Dashboard() {
               {/* ════════ DASHBOARD VIEW ════════ */}
               {activeView === "dashboard" && (
                 <>
+                  {/* ── Financial Tip ── */}
+                  {showTip && dailyTip && (
+                    <div className="tip-banner tip-fade">
+                      <div className="tip-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18h6" /><path d="M10 22h4" /><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" /></svg>
+                      </div>
+                      <div className="tip-content">
+                        <span className="tip-label">Financial Tip</span>
+                        <span className="tip-text">"{dailyTip.quote}"</span>
+                        <span className="tip-author">— {dailyTip.author}</span>
+                      </div>
+                      <button className="tip-close" onClick={() => setShowTip(false)} title="Dismiss">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                      </button>
+                    </div>
+                  )}
+
                   {/* ── Quick Actions ── */}
                   <div className="quick-actions">
                     <button className="qa-btn qa-deposit" onClick={() => openModal("deposit")} disabled={categories.length === 0}>
