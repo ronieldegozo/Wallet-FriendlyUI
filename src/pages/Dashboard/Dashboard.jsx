@@ -13,6 +13,7 @@ import {
 import { updateUser } from "../../services/userService";
 import { changePassword } from "../../services/authService";
 import { getCategoryTypes } from "../../services/categoryTypesService";
+import { subscribeToPush } from "../../services/pushService";
 import ThemeToggle from "../../components/ThemeToggle";
 import {
   LineChart, Line, PieChart, Pie, Cell,
@@ -153,6 +154,10 @@ export default function Dashboard() {
   useEffect(() => {
     if (showTip) { const t = setTimeout(() => setShowTip(false), 30000); return () => clearTimeout(t); }
   }, [showTip]);
+
+  useEffect(() => {
+    if (userId) subscribeToPush(userId);
+  }, [userId]);
 
   async function loadData() {
     setLoading(true); setError("");
