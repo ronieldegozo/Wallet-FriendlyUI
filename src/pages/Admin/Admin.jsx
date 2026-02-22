@@ -130,11 +130,19 @@ export default function Admin() {
         });
         setSuccess("User created successfully!");
       } else {
-        const { password, role, ...updateData } = formData;
-        await updateUser(editingUserId, {
-          ...updateData,
-          monthlySalary: Number(updateData.monthlySalary) || 0,
-        });
+        const updatePayload = {
+          firstName: formData.firstName,
+          middleName: formData.middleName,
+          lastName: formData.lastName,
+          occupation: formData.occupation,
+          email: formData.email,
+          monthlySalary: Number(formData.monthlySalary) || 0,
+          role: formData.role,
+        };
+        if (formData.password && formData.password.trim() !== "") {
+          updatePayload.password = formData.password;
+        }
+        await updateUser(editingUserId, updatePayload);
         setSuccess("User updated successfully!");
       }
       closeModal();
@@ -497,21 +505,29 @@ export default function Admin() {
                 <input id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} required />
               </div>
 
-              {modalMode === "create" && (
-                <div className="form-row">
-                  <div className="form-field">
-                    <label htmlFor="password">Password *</label>
-                    <input id="password" name="password" type="password" value={formData.password} onChange={handleInputChange} required />
-                  </div>
-                  <div className="form-field">
-                    <label htmlFor="role">Role *</label>
-                    <select id="role" name="role" value={formData.role} onChange={handleInputChange}>
-                      <option value="ROLE_USER">User</option>
-                      <option value="ROLE_ADMIN">Admin</option>
-                    </select>
-                  </div>
+              <div className="form-row">
+                <div className="form-field">
+                  <label htmlFor="password">
+                    {modalMode === "create" ? "Password *" : "New Password"}
+                  </label>
+                  <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    placeholder={modalMode === "edit" ? "Leave blank to keep current" : ""}
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    required={modalMode === "create"}
+                  />
                 </div>
-              )}
+                <div className="form-field">
+                  <label htmlFor="role">Role *</label>
+                  <select id="role" name="role" value={formData.role} onChange={handleInputChange}>
+                    <option value="ROLE_USER">User</option>
+                    <option value="ROLE_ADMIN">Admin</option>
+                  </select>
+                </div>
+              </div>
 
               <div className="form-field">
                 <label htmlFor="monthlySalary">Monthly Salary</label>
