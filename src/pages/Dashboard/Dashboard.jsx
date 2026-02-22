@@ -15,8 +15,8 @@ import { changePassword } from "../../services/authService";
 import { getCategoryTypes } from "../../services/categoryTypesService";
 import ThemeToggle from "../../components/ThemeToggle";
 import {
-  AreaChart, Area, PieChart, Pie, Cell,
-  XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  LineChart, Line, PieChart, Pie, Cell,
+  XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from "recharts";
 import "./Dashboard.css";
 
@@ -102,6 +102,7 @@ export default function Dashboard() {
   const [catName, setCatName] = useState("");
   const [catAmount, setCatAmount] = useState("");
   const [catType, setCatType] = useState("savings");
+  const [catGoalDeadline, setCatGoalDeadline] = useState("");
   const [catSubmitting, setCatSubmitting] = useState(false);
   const [catError, setCatError] = useState("");
 
@@ -163,15 +164,16 @@ export default function Dashboard() {
   }
 
   /* ── Category CRUD ── */
-  function openCategoryModal() { setCatModalMode("create"); setEditingCategoryId(null); setCatError(""); setCatName(""); setCatAmount(""); const t = getCategoryTypes(); setAvailableTypes(t); setCatType(t.length > 0 ? t[0].id : ""); setShowCategoryModal(true); }
-  function openEditCategoryModal(cat) { setCatModalMode("edit"); setCatError(""); setEditingCategoryId(cat.category_id); setCatName(cat.name || ""); setCatAmount(cat.amount ? formatAmountDisplay(String(cat.amount)) : ""); const t = getCategoryTypes(); setAvailableTypes(t); setCatType(cat.type || (t.length > 0 ? t[0].id : "")); setShowCategoryModal(true); }
+  function openCategoryModal() { setCatModalMode("create"); setEditingCategoryId(null); setCatError(""); setCatName(""); setCatAmount(""); setCatGoalDeadline(""); const t = getCategoryTypes(); setAvailableTypes(t); setCatType(t.length > 0 ? t[0].id : ""); setShowCategoryModal(true); }
+  function openEditCategoryModal(cat) { setCatModalMode("edit"); setCatError(""); setEditingCategoryId(cat.category_id); setCatName(cat.name || ""); setCatAmount(cat.amount ? formatAmountDisplay(String(cat.amount)) : ""); setCatGoalDeadline(cat.goalDeadline || ""); const t = getCategoryTypes(); setAvailableTypes(t); setCatType(cat.type || (t.length > 0 ? t[0].id : "")); setShowCategoryModal(true); }
   function closeCategoryModal() { setShowCategoryModal(false); setEditingCategoryId(null); setCatError(""); }
   async function handleCategorySubmit(e) {
     e.preventDefault(); setCatSubmitting(true); setCatError("");
     try {
       const rawAmt = parseRawAmount(catAmount);
-      if (catModalMode === "create") { await createCategory(userId, catName, rawAmt, catType); setSuccess("Category created!"); }
-      else { await updateCategory(userId, editingCategoryId, catName, rawAmt, catType); setSuccess("Category updated!"); }
+      const deadline = catGoalDeadline || null;
+      if (catModalMode === "create") { await createCategory(userId, catName, rawAmt, catType, deadline); setSuccess("Category created!"); }
+      else { await updateCategory(userId, editingCategoryId, catName, rawAmt, catType, deadline); setSuccess("Category updated!"); }
       closeCategoryModal(); loadData();
     } catch (err) { setCatError(err.message); } finally { setCatSubmitting(false); }
   }
@@ -248,13 +250,23 @@ export default function Dashboard() {
 
   const recentTransactions = useMemo(() => transactions.slice(0, 5), [transactions]);
 
+  function getCategoryByName(name) {
+    return categories.find((c) => c.name === name) || null;
+  }
+
   /* ── Export CSV ── */
   function exportTransactionsCSV() {
     if (filteredTransactions.length === 0) return;
-    const headers = ["Type", "Category", "Amount (₱)", "Note", "Date & Time"];
+    const headers = ["Type", "Category", "Amount (₱)", "Note", "Date & Time", "Goal (₱)", "Saved (₱)", "Remaining (₱)", "Progress (%)", "Goal Reached"];
     const rows = filteredTransactions.map((tx) => {
       const isD = tx.transactionType === "DEPOSIT"; const amt = isD ? tx.amount : tx.withdrawalAmount;
-      return [isD ? "Deposit" : "Withdrawal", tx.categoryName || "", `${isD ? "+" : "-"}${Number(amt || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, tx.note || "", formatDatePH(tx.dateTime)];
+      const cat = getCategoryByName(tx.categoryName);
+      const goal = cat?.amount || 0;
+      const saved = cat?.savingsCurrentAmount || 0;
+      const remaining = Math.max(goal - saved, 0);
+      const pct = goal > 0 ? Math.min((saved / goal) * 100, 100) : 0;
+      const reached = pct >= 100 ? "Yes" : "No";
+      return [isD ? "Deposit" : "Withdrawal", tx.categoryName || "", `${isD ? "+" : "-"}${Number(amt || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, tx.note || "", formatDatePH(tx.dateTime), Number(goal).toLocaleString(undefined, { minimumFractionDigits: 2 }), Number(saved).toLocaleString(undefined, { minimumFractionDigits: 2 }), Number(remaining).toLocaleString(undefined, { minimumFractionDigits: 2 }), pct.toFixed(0), reached];
     });
     const csv = [headers.join(","), ...rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))].join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
@@ -400,18 +412,15 @@ export default function Dashboard() {
                         <p className="chart-empty">No transaction data yet.</p>
                       ) : (
                         <ResponsiveContainer width="100%" height={260}>
-                          <AreaChart data={savingsTrendData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                            <defs>
-                              <linearGradient id="gDep" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} /><stop offset="95%" stopColor="#22c55e" stopOpacity={0} /></linearGradient>
-                              <linearGradient id="gWith" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} /><stop offset="95%" stopColor="#f59e0b" stopOpacity={0} /></linearGradient>
-                            </defs>
+                          <LineChart data={savingsTrendData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
                             <XAxis dataKey="month" tick={{ fill: "var(--text-muted)", fontSize: 12 }} axisLine={false} tickLine={false} />
                             <YAxis tick={{ fill: "var(--text-muted)", fontSize: 12 }} axisLine={false} tickLine={false} tickFormatter={(v) => `₱${(v / 1000).toFixed(0)}k`} />
                             <Tooltip contentStyle={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)", borderRadius: 10, color: "var(--text-primary)" }} formatter={(v) => fmtCurrency(v)} />
-                            <Area type="monotone" dataKey="Deposits" stroke="#22c55e" fill="url(#gDep)" strokeWidth={2} />
-                            <Area type="monotone" dataKey="Withdrawals" stroke="#f59e0b" fill="url(#gWith)" strokeWidth={2} />
-                          </AreaChart>
+                            <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-muted)" }} />
+                            <Line type="linear" dataKey="Deposits" stroke="#22c55e" strokeWidth={2.5} dot={{ r: 5, fill: "#22c55e", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 7 }} />
+                            <Line type="linear" dataKey="Withdrawals" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 5, fill: "#f59e0b", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 7 }} />
+                          </LineChart>
                         </ResponsiveContainer>
                       )}
                     </div>
@@ -484,28 +493,63 @@ export default function Dashboard() {
                     <div className="empty-state"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" /><path d="M3 5v14a2 2 0 0 0 2 2h16v-5" /><path d="M18 12a2 2 0 0 0 0 4h4v-4Z" /></svg><p>No categories yet</p><span>Create your first category to start saving!</span></div>
                   ) : (
                     <div className="categories-grid">
-                      {categories.map((cat) => (
-                        <div className="category-card" key={cat.category_id}>
-                          <div className="cat-header">
-                            <span className="cat-name">{cat.name}</span>
-                            <div className="cat-header-right">
-                              {cat.type && <span className="cat-type">{cat.type}</span>}
-                              <button className="cat-icon-btn cat-icon-edit" title="Edit" onClick={() => openEditCategoryModal(cat)}>
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
-                              </button>
-                              <button className="cat-icon-btn cat-icon-delete" title="Delete" onClick={() => { setDeleteCatError(""); setDeleteCatConfirm(cat); }}>
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
-                              </button>
+                      {categories.map((cat) => {
+                        const goal = cat.amount || 0;
+                        const current = cat.savingsCurrentAmount || 0;
+                        const pct = goal > 0 ? Math.min((current / goal) * 100, 100) : 0;
+                        const goalReached = pct >= 100;
+                        const progressColor = goalReached ? "progress-green" : pct >= 50 ? "progress-blue" : "progress-orange";
+                        const daysLeft = cat.goalDeadline ? Math.ceil((new Date(cat.goalDeadline) - new Date()) / 86400000) : null;
+
+                        return (
+                          <div className="category-card" key={cat.category_id}>
+                            <div className="cat-header">
+                              <span className="cat-name">{cat.name}</span>
+                              <div className="cat-header-right">
+                                {goalReached && <span className="goal-reached-badge">Goal Reached!</span>}
+                                {cat.type && <span className="cat-type">{cat.type}</span>}
+                                <button className="cat-icon-btn cat-icon-edit" title="Edit" onClick={() => openEditCategoryModal(cat)}>
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
+                                </button>
+                                <button className="cat-icon-btn cat-icon-delete" title="Delete" onClick={() => { setDeleteCatError(""); setDeleteCatConfirm(cat); }}>
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="cat-goal-info">
+                              <span className="cat-goal-label">Goal: {fmtCurrency(goal)}</span>
+                              <span className="cat-goal-saved">Saved: {fmtCurrency(current)}</span>
+                            </div>
+
+                            <div className="goal-progress">
+                              <div className="progress-bar-track">
+                                <div className={`progress-bar-fill ${progressColor}`} style={{ width: `${pct}%` }} />
+                              </div>
+                              <span className="progress-pct">{pct.toFixed(0)}%</span>
+                            </div>
+
+                            <div className="cat-remaining">
+                              Remaining: {fmtCurrency(Math.max(goal - current, 0))}
+                            </div>
+
+                            {cat.goalDeadline && (
+                              <div className="cat-deadline">
+                                {daysLeft > 0
+                                  ? `Target: ${new Date(cat.goalDeadline).toLocaleDateString("en-US", { month: "short", year: "numeric" })} · ~${daysLeft} day${daysLeft !== 1 ? "s" : ""} left`
+                                  : daysLeft === 0
+                                    ? "Deadline is today!"
+                                    : `Deadline passed (${new Date(cat.goalDeadline).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })})`}
+                              </div>
+                            )}
+
+                            <div className="cat-actions">
+                              <button className="cat-btn cat-btn-deposit" onClick={() => { setSelectedCategory(cat.category_id); setModalType("deposit"); setAmount(""); setNote(""); setTxError(""); setShowModal(true); }}>Deposit</button>
+                              <button className="cat-btn cat-btn-withdraw" onClick={() => { setSelectedCategory(cat.category_id); setModalType("withdraw"); setAmount(""); setNote(""); setWithdrawDate(""); setTxError(""); setShowModal(true); }}>Withdraw</button>
                             </div>
                           </div>
-                          <div className="cat-amount">{fmtCurrency(cat.amount)}</div>
-                          <div className="cat-footer">Current: {fmtCurrency(cat.savingsCurrentAmount)}</div>
-                          <div className="cat-actions">
-                            <button className="cat-btn cat-btn-deposit" onClick={() => { setSelectedCategory(cat.category_id); setModalType("deposit"); setAmount(""); setNote(""); setTxError(""); setShowModal(true); }}>Deposit</button>
-                            <button className="cat-btn cat-btn-withdraw" onClick={() => { setSelectedCategory(cat.category_id); setModalType("withdraw"); setAmount(""); setNote(""); setWithdrawDate(""); setTxError(""); setShowModal(true); }}>Withdraw</button>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -533,9 +577,34 @@ export default function Dashboard() {
                         <button className="btn-export" onClick={exportTransactionsCSV} disabled={filteredTransactions.length === 0}><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>Export CSV</button>
                       </div>
                       {filteredTransactions.length === 0 ? <div className="empty-state" style={{ padding: "2rem" }}><p>No transactions match your filters.</p></div> : (
-                        <div className="table-wrapper"><table className="tx-table"><thead><tr><th>Type</th><th>Category</th><th>Amount</th><th>Note</th><th>Date & Time</th></tr></thead><tbody>
-                          {filteredTransactions.map((tx, idx) => { const isD = tx.transactionType === "DEPOSIT"; const amt = isD ? tx.amount : tx.withdrawalAmount; return (
-                            <tr key={tx.id ?? idx}><td><span className={`tx-badge ${isD ? "tx-deposit" : "tx-withdraw"}`}>{isD ? "Deposit" : "Withdrawal"}</span></td><td>{tx.categoryName || "—"}</td><td className={isD ? "amount-green" : "amount-red"}>{isD ? "+" : "-"}{fmtCurrency(amt)}</td><td>{tx.note || "—"}</td><td className="tx-date">{formatDatePH(tx.dateTime)}</td></tr>
+                        <div className="table-wrapper"><table className="tx-table"><thead><tr><th>Type</th><th>Category</th><th>Amount</th><th>Goal Progress</th><th>Note</th><th>Date & Time</th></tr></thead><tbody>
+                          {filteredTransactions.map((tx, idx) => {
+                            const isD = tx.transactionType === "DEPOSIT"; const amt = isD ? tx.amount : tx.withdrawalAmount;
+                            const cat = getCategoryByName(tx.categoryName);
+                            const goal = cat?.amount || 0;
+                            const saved = cat?.savingsCurrentAmount || 0;
+                            const pct = goal > 0 ? Math.min((saved / goal) * 100, 100) : 0;
+                            const goalReached = pct >= 100;
+                            const progressColor = goalReached ? "progress-green" : pct >= 50 ? "progress-blue" : "progress-orange";
+                            return (
+                            <tr key={tx.id ?? idx}>
+                              <td><span className={`tx-badge ${isD ? "tx-deposit" : "tx-withdraw"}`}>{isD ? "Deposit" : "Withdrawal"}</span></td>
+                              <td>{tx.categoryName || "—"}</td>
+                              <td className={isD ? "amount-green" : "amount-red"}>{isD ? "+" : "-"}{fmtCurrency(amt)}</td>
+                              <td className="tx-goal-cell">
+                                {goal > 0 ? (
+                                  <div className="tx-goal-progress">
+                                    <div className="tx-progress-bar-track">
+                                      <div className={`progress-bar-fill ${progressColor}`} style={{ width: `${pct}%` }} />
+                                    </div>
+                                    <span className="tx-progress-label">{pct.toFixed(0)}%</span>
+                                    {goalReached && <span className="tx-goal-reached">Reached</span>}
+                                  </div>
+                                ) : <span className="tx-no-goal">—</span>}
+                              </td>
+                              <td>{tx.note || "—"}</td>
+                              <td className="tx-date">{formatDatePH(tx.dateTime)}</td>
+                            </tr>
                           ); })}
                         </tbody></table></div>
                       )}
@@ -558,7 +627,8 @@ export default function Dashboard() {
           <form onSubmit={handleCategorySubmit} className="modal-form">
             <div className="form-field"><label htmlFor="catName">Category Name *</label><input id="catName" type="text" placeholder="e.g. House, Emergency Fund" value={catName} onChange={(e) => setCatName(e.target.value)} required /></div>
             <div className="form-field"><label htmlFor="catType">Type</label><select id="catType" value={catType} onChange={(e) => setCatType(e.target.value)}>{availableTypes.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}</select></div>
-            <div className="form-field"><label htmlFor="catAmount">{catModalMode === "create" ? "Initial Amount (₱)" : "Amount (₱)"}</label><input id="catAmount" type="text" inputMode="decimal" placeholder="0.00" value={catAmount} onChange={(e) => { const raw = e.target.value.replace(/[^0-9.]/g, ""); const parts = raw.split("."); const cleaned = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join("")}` : raw; setCatAmount(formatAmountDisplay(cleaned)); }} /></div>
+            <div className="form-field"><label htmlFor="catAmount">Goal Amount (₱)</label><input id="catAmount" type="text" inputMode="decimal" placeholder="0.00" value={catAmount} onChange={(e) => { const raw = e.target.value.replace(/[^0-9.]/g, ""); const parts = raw.split("."); const cleaned = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join("")}` : raw; setCatAmount(formatAmountDisplay(cleaned)); }} /></div>
+            <div className="form-field"><label htmlFor="catGoalDeadline">Target Date (optional)</label><input id="catGoalDeadline" type="date" value={catGoalDeadline} onChange={(e) => setCatGoalDeadline(e.target.value)} min={new Date().toISOString().split("T")[0]} /></div>
             <div className="modal-actions"><button type="button" className="btn-cancel" onClick={closeCategoryModal}>Cancel</button><button type="submit" className="btn-submit" disabled={catSubmitting}>{catSubmitting ? <span className="spinner-sm" /> : catModalMode === "create" ? "Create Category" : "Save Changes"}</button></div>
           </form>
         </div></div>

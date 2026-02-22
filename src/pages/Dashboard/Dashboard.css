@@ -508,6 +508,71 @@
 .cat-btn-deposit { background: #22c55e; }
 .cat-btn-withdraw { background: #f59e0b; }
 
+/* ── Goal Progress ── */
+.cat-goal-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.82rem;
+  margin-bottom: 0.35rem;
+}
+.cat-goal-label { font-weight: 700; color: var(--text-primary); font-size: 1.1rem; }
+.cat-goal-saved { color: var(--text-muted); font-weight: 600; }
+
+.goal-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.35rem;
+}
+.progress-bar-track {
+  flex: 1;
+  height: 10px;
+  background: var(--bg-primary);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.5s ease;
+}
+.progress-green { background: #22c55e; }
+.progress-blue  { background: #60a5fa; }
+.progress-orange { background: #f59e0b; }
+
+.progress-pct {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  min-width: 34px;
+  text-align: right;
+}
+
+.cat-remaining {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.cat-deadline {
+  font-size: 0.75rem;
+  color: var(--text-faded);
+  margin-bottom: 0.25rem;
+}
+
+.goal-reached-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: #22c55e;
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+}
+
 /* ── Empty State ── */
 .empty-state { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; padding: 4rem 2rem; color: var(--text-placeholder); text-align: center; }
 .empty-state p { font-size: 1rem; font-weight: 600; color: var(--text-faded); margin: 0; }
@@ -553,6 +618,40 @@
 .amount-green { color: #22c55e; font-weight: 600; }
 .amount-red { color: #f59e0b; font-weight: 600; }
 .tx-date { font-size: 0.8rem; color: var(--text-faded); }
+
+/* ── Goal Progress in History Table ── */
+.tx-goal-cell { min-width: 140px; }
+.tx-goal-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.tx-progress-bar-track {
+  flex: 1;
+  height: 7px;
+  background: var(--bg-primary);
+  border-radius: 99px;
+  overflow: hidden;
+  min-width: 60px;
+}
+.tx-progress-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  min-width: 30px;
+  text-align: right;
+}
+.tx-goal-reached {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #fff;
+  background: #22c55e;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.tx-no-goal { color: var(--text-faded); }
 
 /* ══════════════════════════════════════
    MODALS

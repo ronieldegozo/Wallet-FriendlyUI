@@ -94,11 +94,13 @@ export async function withdraw(userId, categoryId, withdrawAmount, date, note) {
  * POST /rest/v1/category/savings/userid/{userId} — Create a new savings category
  * Body: { name, amount, type }
  */
-export async function createCategory(userId, name, amount, type) {
+export async function createCategory(userId, name, amount, type, goalDeadline) {
+  const body = { name, amount: Number(amount) || 0, type };
+  if (goalDeadline) body.goalDeadline = goalDeadline;
   const res = await fetch(`${API_BASE}/category/savings/userid/${userId}`, {
     method: "POST",
     headers: authHeaders(),
-    body: JSON.stringify({ name, amount: Number(amount) || 0, type }),
+    body: JSON.stringify(body),
   });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(extractError(data, "Failed to create category."));
@@ -110,11 +112,13 @@ export async function createCategory(userId, name, amount, type) {
  * PUT /rest/v1/category/user/{userId}?categoryId={categoryId} — Update a category
  * Body: { name, amount, type }
  */
-export async function updateCategory(userId, categoryId, name, amount, type) {
+export async function updateCategory(userId, categoryId, name, amount, type, goalDeadline) {
+  const body = { name, amount: Number(amount) || 0, type };
+  if (goalDeadline) body.goalDeadline = goalDeadline;
   const res = await fetch(`${API_BASE}/category/user/${userId}?categoryId=${categoryId}`, {
     method: "PUT",
     headers: authHeaders(),
-    body: JSON.stringify({ name, amount: Number(amount) || 0, type }),
+    body: JSON.stringify(body),
   });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(extractError(data, "Failed to update category."));
