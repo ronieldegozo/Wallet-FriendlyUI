@@ -155,9 +155,27 @@ export default function Dashboard() {
     if (showTip) { const t = setTimeout(() => setShowTip(false), 30000); return () => clearTimeout(t); }
   }, [showTip]);
 
+  /* ── Push notification state ── */
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+
   useEffect(() => {
-    if (userId) subscribeToPush(userId);
-  }, [userId]);
+    if ("Notification" in window && Notification.permission === "granted" && "PushManager" in window) {
+      navigator.serviceWorker?.ready?.then((reg) =>
+        reg.pushManager.getSubscription().then((sub) => { if (sub) setPushEnabled(true); })
+      );
+    }
+  }, []);
+
+  async function handleEnableNotifications() {
+    if (!userId || pushLoading) return;
+    setPushLoading(true);
+    const result = await subscribeToPush(userId);
+    setPushEnabled(result);
+    setPushLoading(false);
+    if (result) setSuccess("Notifications enabled! You'll be notified on deposits & withdrawals.");
+    else setError("Could not enable notifications. Please allow notifications in your browser settings.");
+  }
 
   async function loadData() {
     setLoading(true); setError("");
@@ -369,10 +387,23 @@ export default function Dashboard() {
             <h1>{getGreeting()}, {user?.firstName || "User"}</h1>
             <p>Here&apos;s your financial overview</p>
           </div>
-          <button className="topbar-avatar" onClick={openProfileModal} title="Edit profile">
-            <div className="avatar-circle">{initials}</div>
-            <span className="avatar-name">{fullName}</span>
-          </button>
+          <div className="topbar-right">
+            {!pushEnabled && (
+              <button className="notif-bell-btn" onClick={handleEnableNotifications} disabled={pushLoading} title="Enable push notifications">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                <span className="notif-bell-label">{pushLoading ? "Enabling..." : "Enable Alerts"}</span>
+              </button>
+            )}
+            {pushEnabled && (
+              <span className="notif-bell-active" title="Notifications enabled">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+              </span>
+            )}
+            <button className="topbar-avatar" onClick={openProfileModal} title="Edit profile">
+              <div className="avatar-circle">{initials}</div>
+              <span className="avatar-name">{fullName}</span>
+            </button>
+          </div>
         </header>
 
         {/* ── Messages ── */}
