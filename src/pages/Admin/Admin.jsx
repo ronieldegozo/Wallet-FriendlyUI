@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { getUserFromToken } from "../../services/tokenUtils";
 import {
@@ -30,6 +30,8 @@ const EMPTY_FORM = {
 export default function Admin() {
   const navigate = useNavigate();
   const currentUser = getUserFromToken();
+  const adminInitials = currentUser ? `${currentUser.firstName.charAt(0)}${currentUser.lastName.charAt(0)}` : "A";
+  const adminName = currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : "Admin";
 
   // Active admin tab
   const [adminTab, setAdminTab] = useState("users"); // "users" | "types"
@@ -56,6 +58,13 @@ export default function Admin() {
   const [deleteTypeConfirm, setDeleteTypeConfirm] = useState(null);
   const [typeSubmitting, setTypeSubmitting] = useState(false);
 
+  // ── Profile menu (avatar dropdown) ──
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  // ── User search filter (UI-side only) ──
+  const [userSearch, setUserSearch] = useState("");
+
   useEffect(() => {
     fetchUsers();
     fetchCategoryTypes();
@@ -76,6 +85,17 @@ export default function Admin() {
       return () => clearTimeout(timer);
     }
   }, [success]);
+
+  // Close avatar menu on outside click
+  useEffect(() => {
+    function handleClick(e) {
+      if (menuOpen && menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [menuOpen]);
 
   // ══════════════════════════════════════
   //  USER MANAGEMENT HANDLERS
@@ -244,210 +264,271 @@ export default function Admin() {
     navigate("/");
   }
 
+  // Derived stats for the top banner
+  const adminCount = users.filter((u) => u.roles?.includes("ROLE_ADMIN")).length;
+  const userCount = users.filter((u) => !u.roles?.includes("ROLE_ADMIN")).length;
+
+  // Search-filtered users
+  const filteredUsers = users.filter((u) => {
+    if (!userSearch.trim()) return true;
+    const q = userSearch.toLowerCase();
+    return (
+      (u.firstName || "").toLowerCase().includes(q) ||
+      (u.middleName || "").toLowerCase().includes(q) ||
+      (u.lastName || "").toLowerCase().includes(q) ||
+      (u.email || "").toLowerCase().includes(q) ||
+      (u.occupation || "").toLowerCase().includes(q)
+    );
+  });
+
   return (
-    <div className="admin-page">
-      {/* ── Header ── */}
-      <header className="admin-header">
-        <div className="admin-brand">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" />
-            <path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
-            <path d="M18 12a2 2 0 0 0 0 4h4v-4Z" />
-          </svg>
-          <span>Wallet Friendly</span>
-          <span className="admin-badge">Admin</span>
-        </div>
-        <div className="header-right">
-          <button className="nav-link" onClick={() => navigate("/dashboard")}>
-            Dashboard
-          </button>
-          <div className="admin-user-info">
-            <div className="admin-avatar">
-              {currentUser ? `${currentUser.firstName.charAt(0)}${currentUser.lastName.charAt(0)}` : "A"}
+    <div className="ad-shell">
+
+      {/* ═════════════════ TOP NAV ═════════════════ */}
+      <header className="ad-nav">
+        <div className="ad-nav-inner">
+          <div className="ad-nav-brand">
+            <div className="ad-nav-logo">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" />
+                <path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
+                <path d="M18 12a2 2 0 0 0 0 4h4v-4Z" />
+              </svg>
             </div>
-            <span className="admin-user-name">
-              {currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : "Admin"}
-            </span>
+            <div className="ad-nav-titles">
+              <span className="ad-nav-name">Wallet Friendly</span>
+              <span className="ad-nav-tag">Admin Console</span>
+            </div>
           </div>
-          <ThemeToggle />
-          <button className="logout-btn" onClick={handleLogout}>
-            Sign Out
-          </button>
+
+          <div className="ad-nav-actions">
+            <button className="ad-back-btn" onClick={() => navigate("/dashboard")}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
+              Back to dashboard
+            </button>
+            <ThemeToggle />
+
+            <div className="ad-avatar-wrap" ref={menuRef}>
+              <button className="ad-avatar-btn" onClick={() => setMenuOpen((v) => !v)}>
+                <span className="ad-avatar-circle">{adminInitials}</span>
+                <span className="ad-avatar-name">{adminName}</span>
+                <svg className={`ad-avatar-caret ${menuOpen ? "is-open" : ""}`} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+              </button>
+              {menuOpen && (
+                <div className="ad-menu" role="menu">
+                  <div className="ad-menu-head">
+                    <div className="ad-menu-avatar">{adminInitials}</div>
+                    <div className="ad-menu-id">
+                      <span className="ad-menu-name">{adminName}</span>
+                      <span className="ad-menu-email">{currentUser?.email || ""}</span>
+                    </div>
+                  </div>
+                  <button className="ad-menu-item" onClick={() => { setMenuOpen(false); navigate("/dashboard"); }}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
+                    Dashboard
+                  </button>
+                  <div className="ad-menu-divider" />
+                  <button className="ad-menu-item ad-menu-item-danger" onClick={handleLogout}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>
+                    Sign out
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </header>
 
-      {/* ── Main Content ── */}
-      <main className="admin-content">
-        {/* Messages */}
-        {success && <div className="msg msg-success">{success}</div>}
-        {error && <div className="msg msg-error">{error}</div>}
+      <main className="ad-main">
 
-        {/* ── Admin Tabs ── */}
-        <div className="admin-tab-bar">
-          <button className={`admin-tab-btn ${adminTab === "users" ? "admin-tab-active" : ""}`} onClick={() => setAdminTab("users")}>
-            User Management
+        {/* ═════════════════ STAT BANNER ═════════════════ */}
+        <section className="ad-banner">
+          <div className="ad-banner-orb" />
+          <div className="ad-banner-content">
+            <div className="ad-banner-text">
+              <span className="ad-banner-eyebrow">Admin Console</span>
+              <h1>Manage your platform</h1>
+              <p>Configure users, roles, and the savings categories available to everyone.</p>
+            </div>
+            <div className="ad-banner-stats">
+              <div className="ad-banner-stat">
+                <span className="ad-banner-stat-label">Total users</span>
+                <span className="ad-banner-stat-value">{users.length}</span>
+              </div>
+              <div className="ad-banner-divider" />
+              <div className="ad-banner-stat">
+                <span className="ad-banner-stat-label">Admins</span>
+                <span className="ad-banner-stat-value">{adminCount}</span>
+              </div>
+              <div className="ad-banner-divider" />
+              <div className="ad-banner-stat">
+                <span className="ad-banner-stat-label">Users</span>
+                <span className="ad-banner-stat-value">{userCount}</span>
+              </div>
+              <div className="ad-banner-divider" />
+              <div className="ad-banner-stat">
+                <span className="ad-banner-stat-label">Category types</span>
+                <span className="ad-banner-stat-value">{categoryTypes.length}</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Toasts */}
+        {success && <div className="ad-toast ad-toast-success"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>{success}</div>}
+        {error && <div className="ad-toast ad-toast-error"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>{error}</div>}
+
+        {/* ═════════════════ SEGMENT TABS ═════════════════ */}
+        <div className="ad-tabs">
+          <button className={`ad-tab ${adminTab === "users" ? "ad-tab-active" : ""}`} onClick={() => setAdminTab("users")}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+            <span>User Management</span>
+            <span className="ad-tab-count">{users.length}</span>
           </button>
-          <button className={`admin-tab-btn ${adminTab === "types" ? "admin-tab-active" : ""}`} onClick={() => setAdminTab("types")}>
-            Category Types
+          <button className={`ad-tab ${adminTab === "types" ? "ad-tab-active" : ""}`} onClick={() => setAdminTab("types")}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" /><line x1="7" y1="7" x2="7.01" y2="7" /></svg>
+            <span>Category Types</span>
+            <span className="ad-tab-count">{categoryTypes.length}</span>
           </button>
         </div>
 
-        {/* ══════════════════════════════════════
-            TAB: USER MANAGEMENT
-            ══════════════════════════════════════ */}
+        {/* ═════════════════ USERS TAB ═════════════════ */}
         {adminTab === "users" && (
-          <>
-            <div className="admin-toolbar">
-              <div>
-                <h1>User Management</h1>
-                <p className="admin-toolbar-sub">Create, view, update, and delete users</p>
+          <section className="ad-section">
+            <div className="ad-section-toolbar">
+              <div className="ad-search">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+                <input type="text" placeholder="Search by name, email, occupation…" value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
+                {userSearch && (
+                  <button className="ad-search-clear" onClick={() => setUserSearch("")}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                  </button>
+                )}
               </div>
-              <button className="btn-create" onClick={openCreateModal}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                Add User
+              <button className="ad-btn-primary" onClick={openCreateModal}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                Add user
               </button>
             </div>
 
             {loading ? (
-              <div className="admin-loading">
-                <div className="spinner-lg"></div>
-                <p>Loading users...</p>
-              </div>
+              <div className="ad-loading"><div className="ad-spinner-lg" /><p>Loading users…</p></div>
             ) : users.length === 0 ? (
-              <div className="admin-empty">
-                <p>No users found.</p>
+              <div className="ad-empty">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
+                <p>No users found</p>
+                <span>Get started by creating your first account.</span>
+              </div>
+            ) : filteredUsers.length === 0 ? (
+              <div className="ad-empty">
+                <p>No users match &ldquo;{userSearch}&rdquo;</p>
+                <span>Try a different search term.</span>
               </div>
             ) : (
-              <div className="table-wrapper">
-                <table className="user-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Name</th>
-                      <th>Email</th>
-                      <th>Occupation</th>
-                      <th>Monthly Salary</th>
-                      <th>Role</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((user) => (
-                      <tr key={user.id}>
-                        <td>{user.id}</td>
-                        <td className="name-cell">
-                          <div className="table-avatar">
-                            {user.firstName?.charAt(0)}{user.lastName?.charAt(0)}
-                          </div>
-                          <div>
-                            <span className="table-name">{user.firstName} {user.middleName ? `${user.middleName} ` : ""}{user.lastName}</span>
-                          </div>
-                        </td>
-                        <td>{user.email}</td>
-                        <td>{user.occupation || "—"}</td>
-                        <td>{user.monthlySalary != null ? `₱${Number(user.monthlySalary).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</td>
-                        <td>
-                          <span className={`role-badge ${user.roles?.includes("ROLE_ADMIN") ? "role-admin" : "role-user"}`}>
-                            {user.roles?.includes("ROLE_ADMIN") ? "Admin" : "User"}
-                          </span>
-                        </td>
-                        <td className="actions-cell">
-                          <button className="btn-action btn-edit" title="Edit" onClick={() => openEditModal(user)}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                              <path d="m15 5 4 4" />
-                            </svg>
-                          </button>
-                          <button className="btn-action btn-delete" title="Delete" onClick={() => setDeleteConfirm(user.id)}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M3 6h18" />
-                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                            </svg>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="ad-user-grid">
+                {filteredUsers.map((user) => {
+                  const isAdmin = user.roles?.includes("ROLE_ADMIN");
+                  return (
+                    <article className="ad-user-card" key={user.id}>
+                      <div className="ad-user-top">
+                        <div className={`ad-user-avatar ${isAdmin ? "ad-user-avatar-admin" : ""}`}>
+                          {user.firstName?.charAt(0)}{user.lastName?.charAt(0)}
+                        </div>
+                        <span className={`ad-role-badge ${isAdmin ? "ad-role-admin" : "ad-role-user"}`}>
+                          {isAdmin ? "Admin" : "User"}
+                        </span>
+                      </div>
+                      <div className="ad-user-id">
+                        <span className="ad-user-name">{user.firstName} {user.middleName ? `${user.middleName} ` : ""}{user.lastName}</span>
+                        <span className="ad-user-email">{user.email}</span>
+                      </div>
+                      <dl className="ad-user-meta">
+                        <div>
+                          <dt>Occupation</dt>
+                          <dd>{user.occupation || "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>Monthly Salary</dt>
+                          <dd>{user.monthlySalary != null ? `₱${Number(user.monthlySalary).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</dd>
+                        </div>
+                      </dl>
+                      <div className="ad-user-actions">
+                        <button className="ad-btn-ghost" onClick={() => openEditModal(user)}>
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
+                          Edit
+                        </button>
+                        <button className="ad-btn-ghost ad-btn-ghost-danger" onClick={() => setDeleteConfirm(user.id)}>
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
+                          Delete
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             )}
-          </>
+          </section>
         )}
 
-        {/* ══════════════════════════════════════
-            TAB: CATEGORY TYPES
-            ══════════════════════════════════════ */}
+        {/* ═════════════════ TYPES TAB ═════════════════ */}
         {adminTab === "types" && (
-          <>
-            <div className="admin-toolbar">
-              <div>
-                <h1>Category Types</h1>
-                <p className="admin-toolbar-sub">Manage the list of savings category types available to all users</p>
+          <section className="ad-section">
+            <div className="ad-section-toolbar">
+              <div className="ad-section-info">
+                <h2>Savings Category Types</h2>
+                <p>Define the labels users can pick when creating a savings category.</p>
               </div>
-              <button className="btn-create btn-create-purple" onClick={openAddTypeModal}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                Add Type
+              <button className="ad-btn-primary ad-btn-primary-purple" onClick={openAddTypeModal}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                Add type
               </button>
             </div>
 
             {categoryTypes.length === 0 ? (
-              <div className="admin-empty">
-                <p>No category types defined. Add one to get started.</p>
+              <div className="ad-empty">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" /><line x1="7" y1="7" x2="7.01" y2="7" /></svg>
+                <p>No category types defined</p>
+                <span>Add one to get started.</span>
               </div>
             ) : (
-              <div className="types-grid">
+              <div className="ad-type-grid">
                 {categoryTypes.map((type) => (
-                  <div className="type-card" key={type.id}>
-                    <div className="type-card-left">
-                      <div className="type-icon">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <span className="type-label">{type.label}</span>
-                        <span className="type-id">{type.id}</span>
-                      </div>
+                  <article className="ad-type-card" key={type.id}>
+                    <div className="ad-type-icon">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></svg>
                     </div>
-                    <div className="type-card-actions">
-                      <button className="btn-action btn-edit" title="Edit" onClick={() => openEditTypeModal(type)}>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                          <path d="m15 5 4 4" />
-                        </svg>
+                    <div className="ad-type-id">
+                      <span className="ad-type-label">{type.label}</span>
+                      <span className="ad-type-slug">{type.id}</span>
+                    </div>
+                    <div className="ad-type-actions">
+                      <button className="ad-icon-btn" title="Edit" onClick={() => openEditTypeModal(type)}>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
                       </button>
-                      <button className="btn-action btn-delete" title="Delete" onClick={() => setDeleteTypeConfirm(type)}>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M3 6h18" />
-                          <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                          <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                        </svg>
+                      <button className="ad-icon-btn ad-icon-btn-danger" title="Delete" onClick={() => setDeleteTypeConfirm(type)}>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
                       </button>
                     </div>
-                  </div>
+                  </article>
                 ))}
               </div>
             )}
-          </>
+          </section>
         )}
       </main>
 
       {/* ── Delete User Confirmation Modal ── */}
       {deleteConfirm !== null && (
-        <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
-          <div className="modal-box modal-sm" onClick={(e) => e.stopPropagation()}>
-            <h2>Confirm Delete</h2>
+        <div className="ad-modal-overlay" onClick={() => setDeleteConfirm(null)}>
+          <div className="ad-modal-box ad-modal-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="ad-modal-warn">
+              <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+            </div>
+            <h2>Delete User</h2>
             <p>Are you sure you want to delete this user? This action cannot be undone.</p>
-            <div className="modal-actions">
-              <button className="btn-cancel" onClick={() => setDeleteConfirm(null)}>Cancel</button>
-              <button className="btn-danger" onClick={() => handleDelete(deleteConfirm)}>Delete</button>
+            <div className="ad-modal-actions ad-modal-actions-center">
+              <button className="ad-btn-cancel" onClick={() => setDeleteConfirm(null)}>Cancel</button>
+              <button className="ad-btn-danger" onClick={() => handleDelete(deleteConfirm)}>Delete</button>
             </div>
           </div>
         </div>
@@ -455,21 +536,17 @@ export default function Admin() {
 
       {/* ── Delete Type Confirmation Modal ── */}
       {deleteTypeConfirm !== null && (
-        <div className="modal-overlay" onClick={() => setDeleteTypeConfirm(null)}>
-          <div className="modal-box modal-sm" onClick={(e) => e.stopPropagation()}>
-            <div className="delete-warning-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
-                <line x1="12" y1="9" x2="12" y2="13" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
+        <div className="ad-modal-overlay" onClick={() => setDeleteTypeConfirm(null)}>
+          <div className="ad-modal-box ad-modal-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="ad-modal-warn">
+              <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
             </div>
             <h2>Delete Category Type</h2>
-            <p>Are you sure you want to delete <strong>"{deleteTypeConfirm.label}"</strong>?</p>
-            <p className="delete-warning-text">Existing categories using this type will not be affected, but users will no longer be able to select it for new categories.</p>
-            <div className="modal-actions modal-actions-center">
-              <button className="btn-cancel" onClick={() => setDeleteTypeConfirm(null)}>Cancel</button>
-              <button className="btn-danger" onClick={handleDeleteType}>Delete Type</button>
+            <p>Are you sure you want to delete <strong>&ldquo;{deleteTypeConfirm.label}&rdquo;</strong>?</p>
+            <p className="ad-modal-warn-text">Existing categories using this type will not be affected, but users will no longer be able to select it for new categories.</p>
+            <div className="ad-modal-actions ad-modal-actions-center">
+              <button className="ad-btn-cancel" onClick={() => setDeleteTypeConfirm(null)}>Cancel</button>
+              <button className="ad-btn-danger" onClick={handleDeleteType}>Delete Type</button>
             </div>
           </div>
         </div>
@@ -477,48 +554,45 @@ export default function Admin() {
 
       {/* ── Create / Edit User Modal ── */}
       {showModal && (
-        <div className="modal-overlay" onClick={closeModal}>
-          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+        <div className="ad-modal-overlay" onClick={closeModal}>
+          <div className="ad-modal-box" onClick={(e) => e.stopPropagation()}>
+            <div className="ad-modal-head">
               <h2>{modalMode === "create" ? "Create New User" : "Edit User"}</h2>
-              <button className="modal-close" onClick={closeModal}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
+              <button className="ad-modal-close" onClick={closeModal}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="modal-form">
-              <div className="form-row">
-                <div className="form-field">
+            <form onSubmit={handleSubmit} className="ad-modal-form">
+              <div className="ad-modal-row">
+                <div className="ad-modal-field">
                   <label htmlFor="firstName">First Name *</label>
                   <input id="firstName" name="firstName" value={formData.firstName} onChange={handleInputChange} required />
                 </div>
-                <div className="form-field">
+                <div className="ad-modal-field">
                   <label htmlFor="middleName">Middle Name</label>
                   <input id="middleName" name="middleName" value={formData.middleName} onChange={handleInputChange} />
                 </div>
               </div>
 
-              <div className="form-row">
-                <div className="form-field">
+              <div className="ad-modal-row">
+                <div className="ad-modal-field">
                   <label htmlFor="lastName">Last Name *</label>
                   <input id="lastName" name="lastName" value={formData.lastName} onChange={handleInputChange} required />
                 </div>
-                <div className="form-field">
+                <div className="ad-modal-field">
                   <label htmlFor="occupation">Occupation</label>
                   <input id="occupation" name="occupation" value={formData.occupation} onChange={handleInputChange} />
                 </div>
               </div>
 
-              <div className="form-field">
+              <div className="ad-modal-field">
                 <label htmlFor="email">Email *</label>
                 <input id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} required />
               </div>
 
-              <div className="form-row">
-                <div className="form-field">
+              <div className="ad-modal-row">
+                <div className="ad-modal-field">
                   <label htmlFor="password">
                     {modalMode === "create" ? "Password *" : "New Password"}
                   </label>
@@ -532,7 +606,7 @@ export default function Admin() {
                     required={modalMode === "create"}
                   />
                 </div>
-                <div className="form-field">
+                <div className="ad-modal-field">
                   <label htmlFor="role">Role *</label>
                   <select id="role" name="role" value={formData.role} onChange={handleInputChange}>
                     <option value="ROLE_USER">User</option>
@@ -541,15 +615,15 @@ export default function Admin() {
                 </div>
               </div>
 
-              <div className="form-field">
+              <div className="ad-modal-field">
                 <label htmlFor="monthlySalary">Monthly Salary</label>
                 <input id="monthlySalary" name="monthlySalary" type="number" step="0.01" value={formData.monthlySalary} onChange={handleInputChange} />
               </div>
 
-              <div className="modal-actions">
-                <button type="button" className="btn-cancel" onClick={closeModal}>Cancel</button>
-                <button type="submit" className="btn-submit" disabled={submitting}>
-                  {submitting ? <span className="spinner-sm"></span> : modalMode === "create" ? "Create User" : "Save Changes"}
+              <div className="ad-modal-actions">
+                <button type="button" className="ad-btn-cancel" onClick={closeModal}>Cancel</button>
+                <button type="submit" className="ad-btn-submit" disabled={submitting}>
+                  {submitting ? <span className="ad-spinner-sm" /> : modalMode === "create" ? "Create User" : "Save Changes"}
                 </button>
               </div>
             </form>
@@ -559,20 +633,17 @@ export default function Admin() {
 
       {/* ── Add / Edit Type Modal ── */}
       {showTypeModal && (
-        <div className="modal-overlay" onClick={closeTypeModal}>
-          <div className="modal-box modal-narrow" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+        <div className="ad-modal-overlay" onClick={closeTypeModal}>
+          <div className="ad-modal-box ad-modal-narrow" onClick={(e) => e.stopPropagation()}>
+            <div className="ad-modal-head">
               <h2>{typeModalMode === "add" ? "Add Category Type" : "Edit Category Type"}</h2>
-              <button className="modal-close" onClick={closeTypeModal}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
+              <button className="ad-modal-close" onClick={closeTypeModal}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </button>
             </div>
 
-            <form onSubmit={handleTypeSubmit} className="modal-form">
-              <div className="form-field">
+            <form onSubmit={handleTypeSubmit} className="ad-modal-form">
+              <div className="ad-modal-field">
                 <label htmlFor="typeInput">Type Name *</label>
                 <input
                   id="typeInput"
@@ -584,10 +655,10 @@ export default function Admin() {
                 />
               </div>
 
-              <div className="modal-actions">
-                <button type="button" className="btn-cancel" onClick={closeTypeModal}>Cancel</button>
-                <button type="submit" className="btn-submit btn-submit-purple" disabled={typeSubmitting}>
-                  {typeSubmitting ? <span className="spinner-sm"></span> : typeModalMode === "add" ? "Add Type" : "Save Changes"}
+              <div className="ad-modal-actions">
+                <button type="button" className="ad-btn-cancel" onClick={closeTypeModal}>Cancel</button>
+                <button type="submit" className="ad-btn-submit ad-btn-submit-purple" disabled={typeSubmitting}>
+                  {typeSubmitting ? <span className="ad-spinner-sm" /> : typeModalMode === "add" ? "Add Type" : "Save Changes"}
                 </button>
               </div>
             </form>
