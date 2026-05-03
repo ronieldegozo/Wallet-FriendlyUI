@@ -52,13 +52,23 @@ export default function Admin() {
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [typeModalMode, setTypeModalMode] = useState("add"); // "add" | "edit"
   const [typeInput, setTypeInput] = useState("");
-  const [editingTypeId, setEditingTypeId] = useState(null);
+  const [editingType, setEditingType] = useState(null); // full type object being edited
   const [deleteTypeConfirm, setDeleteTypeConfirm] = useState(null);
+  const [typeSubmitting, setTypeSubmitting] = useState(false);
 
   useEffect(() => {
     fetchUsers();
-    setCategoryTypes(getCategoryTypes());
+    fetchCategoryTypes();
   }, []);
+
+  async function fetchCategoryTypes() {
+    try {
+      const types = await getCategoryTypes();
+      setCategoryTypes(types);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
 
   useEffect(() => {
     if (success) {
@@ -173,50 +183,52 @@ export default function Admin() {
   function openAddTypeModal() {
     setTypeModalMode("add");
     setTypeInput("");
-    setEditingTypeId(null);
+    setEditingType(null);
     setShowTypeModal(true);
   }
 
   function openEditTypeModal(type) {
     setTypeModalMode("edit");
     setTypeInput(type.label);
-    setEditingTypeId(type.id);
+    setEditingType(type);
     setShowTypeModal(true);
   }
 
   function closeTypeModal() {
     setShowTypeModal(false);
     setTypeInput("");
-    setEditingTypeId(null);
+    setEditingType(null);
   }
 
-  function handleTypeSubmit(e) {
+  async function handleTypeSubmit(e) {
     e.preventDefault();
     setError("");
+    setTypeSubmitting(true);
     try {
-      let updated;
       if (typeModalMode === "add") {
-        updated = addCategoryType(typeInput.trim());
+        await addCategoryType(typeInput.trim());
         setSuccess("Category type added successfully!");
       } else {
-        updated = updateCategoryType(editingTypeId, typeInput.trim());
+        await updateCategoryType(editingType?._dbId, typeInput.trim());
         setSuccess("Category type updated successfully!");
       }
-      setCategoryTypes(updated);
+      await fetchCategoryTypes();
       closeTypeModal();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setTypeSubmitting(false);
     }
   }
 
-  function handleDeleteType() {
+  async function handleDeleteType() {
     if (!deleteTypeConfirm) return;
     setError("");
     try {
-      const updated = deleteCategoryType(deleteTypeConfirm.id);
-      setCategoryTypes(updated);
+      await deleteCategoryType(deleteTypeConfirm._dbId);
       setSuccess(`Category type "${deleteTypeConfirm.label}" deleted!`);
       setDeleteTypeConfirm(null);
+      await fetchCategoryTypes();
     } catch (err) {
       setError(err.message);
     }
@@ -574,8 +586,8 @@ export default function Admin() {
 
               <div className="modal-actions">
                 <button type="button" className="btn-cancel" onClick={closeTypeModal}>Cancel</button>
-                <button type="submit" className="btn-submit btn-submit-purple">
-                  {typeModalMode === "add" ? "Add Type" : "Save Changes"}
+                <button type="submit" className="btn-submit btn-submit-purple" disabled={typeSubmitting}>
+                  {typeSubmitting ? <span className="spinner-sm"></span> : typeModalMode === "add" ? "Add Type" : "Save Changes"}
                 </button>
               </div>
             </form>

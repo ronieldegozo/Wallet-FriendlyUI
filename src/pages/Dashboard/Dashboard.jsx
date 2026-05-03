@@ -139,13 +139,23 @@ export default function Dashboard() {
 
   /* ── Effects ── */
   useEffect(() => {
-    setAvailableTypes(getCategoryTypes());
+    loadCategoryTypes();
     if (userId) loadData();
     fetch(QUOTE_API_URL)
       .then((res) => res.json())
       .then((data) => setDailyTip({ quote: data.quote, author: data.author }))
       .catch(() => setDailyTip(null));
   }, [userId]);
+
+  async function loadCategoryTypes() {
+    try {
+      const types = await getCategoryTypes();
+      setAvailableTypes(types);
+    } catch {
+      // Silent fail — modal will show "no types available" if list is empty.
+      setAvailableTypes([]);
+    }
+  }
 
   useEffect(() => {
     if (success) { const t = setTimeout(() => setSuccess(""), 4000); return () => clearTimeout(t); }
@@ -154,6 +164,23 @@ export default function Dashboard() {
   useEffect(() => {
     if (showTip) { const t = setTimeout(() => setShowTip(false), 30000); return () => clearTimeout(t); }
   }, [showTip]);
+
+  /* Refresh data whenever the tab regains focus / visibility — picks up admin changes
+     to category types (rename / delete) without forcing a full page reload. */
+  useEffect(() => {
+    function refreshAll() {
+      if (document.visibilityState !== "visible") return;
+      loadCategoryTypes();
+      if (userId) loadData();
+    }
+    window.addEventListener("focus", refreshAll);
+    document.addEventListener("visibilitychange", refreshAll);
+    return () => {
+      window.removeEventListener("focus", refreshAll);
+      document.removeEventListener("visibilitychange", refreshAll);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
   /* ── Push notification state ── */
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -201,8 +228,38 @@ export default function Dashboard() {
   }
 
   /* ── Category CRUD ── */
-  function openCategoryModal() { setCatModalMode("create"); setEditingCategoryId(null); setCatError(""); setCatName(""); setCatAmount(""); setCatGoalDeadline(""); const t = getCategoryTypes(); setAvailableTypes(t); setCatType(t.length > 0 ? t[0].id : ""); setShowCategoryModal(true); }
-  function openEditCategoryModal(cat) { setCatModalMode("edit"); setCatError(""); setEditingCategoryId(cat.category_id); setCatName(cat.name || ""); setCatAmount(cat.amount ? formatAmountDisplay(String(cat.amount)) : ""); setCatGoalDeadline(cat.goalDeadline || ""); const t = getCategoryTypes(); setAvailableTypes(t); setCatType(cat.type || (t.length > 0 ? t[0].id : "")); setShowCategoryModal(true); }
+  async function openCategoryModal() {
+    setCatModalMode("create");
+    setEditingCategoryId(null);
+    setCatError("");
+    setCatName("");
+    setCatAmount("");
+    setCatGoalDeadline("");
+    setShowCategoryModal(true);
+    try {
+      const t = await getCategoryTypes();
+      setAvailableTypes(t);
+      setCatType(t.length > 0 ? t[0].id : "");
+    } catch (err) {
+      setCatError(err.message);
+    }
+  }
+  async function openEditCategoryModal(cat) {
+    setCatModalMode("edit");
+    setCatError("");
+    setEditingCategoryId(cat.category_id);
+    setCatName(cat.name || "");
+    setCatAmount(cat.amount ? formatAmountDisplay(String(cat.amount)) : "");
+    setCatGoalDeadline(cat.goalDeadline || "");
+    setShowCategoryModal(true);
+    try {
+      const t = await getCategoryTypes();
+      setAvailableTypes(t);
+      setCatType(cat.type || (t.length > 0 ? t[0].id : ""));
+    } catch (err) {
+      setCatError(err.message);
+    }
+  }
   function closeCategoryModal() { setShowCategoryModal(false); setEditingCategoryId(null); setCatError(""); }
   async function handleCategorySubmit(e) {
     e.preventDefault(); setCatSubmitting(true); setCatError("");
@@ -289,6 +346,13 @@ export default function Dashboard() {
 
   function getCategoryByName(name) {
     return categories.find((c) => c.name === name) || null;
+  }
+
+  /** Resolve a SavingsCategory.type slug to its friendly label, falling back to the slug. */
+  function getTypeLabel(slug) {
+    if (!slug) return "";
+    const t = availableTypes.find((x) => x.id === slug);
+    return t ? t.label : slug;
   }
 
   /* ── Export CSV ── */
@@ -574,7 +638,7 @@ export default function Dashboard() {
                               <span className="cat-name">{cat.name}</span>
                               <div className="cat-header-right">
                                 {goalReached && <span className="goal-reached-badge">Goal Reached!</span>}
-                                {cat.type && <span className="cat-type">{cat.type}</span>}
+                                {cat.type && <span className="cat-type">{getTypeLabel(cat.type)}</span>}
                                 <button className="cat-icon-btn cat-icon-edit" title="Edit" onClick={() => openEditCategoryModal(cat)}>
                                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
                                 </button>
