@@ -13,6 +13,7 @@ import {
 import { updateUser } from "../../services/userService";
 import { changePassword } from "../../services/authService";
 import { getCategoryTypes } from "../../services/categoryTypesService";
+import { getMyGroupSummary } from "../../services/groupService";
 import { subscribeToPush } from "../../services/pushService";
 import ThemeToggle from "../../components/ThemeToggle";
 import {
@@ -141,6 +142,19 @@ export default function Dashboard() {
   const [filterType, setFilterType] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
 
+  /* ── Group state — only populated when the user belongs to a group. */
+  const [groupSummary, setGroupSummary] = useState(null);
+  const [groupLoading, setGroupLoading] = useState(false);
+  const [groupError, setGroupError] = useState("");
+
+  /* ── Data-freshness tracking — used to skip duplicate refetches when the
+       user briefly alt-tabs back to the page. The previous implementation
+       called the API on every focus / visibilitychange event, which made
+       Render's free-tier backend look like it was hammering itself. We now
+       only refetch when the data is older than this threshold. */
+  const lastLoadedAtRef = useRef(0);
+  const DATA_TTL_MS = 60_000; // 60s; tweak if you want more/less aggressive caching
+
   /* ── Effects ── */
   useEffect(() => {
     loadCategoryTypes();
@@ -169,19 +183,23 @@ export default function Dashboard() {
     if (showTip) { const t = setTimeout(() => setShowTip(false), 30000); return () => clearTimeout(t); }
   }, [showTip]);
 
-  /* Refresh data whenever the tab regains focus / visibility — picks up admin changes
-     to category types (rename / delete) without forcing a full page reload. */
+  /* Refresh data when the tab regains focus — but ONLY if our cached data is
+     stale (older than DATA_TTL_MS). This avoids the previous behaviour where
+     a quick alt-tab back to the page fired a full re-fetch every single time,
+     which felt sluggish and put unnecessary load on the backend. */
   useEffect(() => {
-    function refreshAll() {
+    function maybeRefresh() {
       if (document.visibilityState !== "visible") return;
+      const stale = Date.now() - lastLoadedAtRef.current > DATA_TTL_MS;
+      if (!stale) return;
       loadCategoryTypes();
       if (userId) loadData();
     }
-    window.addEventListener("focus", refreshAll);
-    document.addEventListener("visibilitychange", refreshAll);
+    window.addEventListener("focus", maybeRefresh);
+    document.addEventListener("visibilitychange", maybeRefresh);
     return () => {
-      window.removeEventListener("focus", refreshAll);
-      document.removeEventListener("visibilitychange", refreshAll);
+      window.removeEventListener("focus", maybeRefresh);
+      document.removeEventListener("visibilitychange", maybeRefresh);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
@@ -226,6 +244,22 @@ export default function Dashboard() {
       const myData = (savingsRes.data || []).find((u) => u.id === userId);
       setSavings(myData || null);
       setTransactions(txRes.data || []);
+      lastLoadedAtRef.current = Date.now();
+
+      // Group summary is only meaningful if this user is in a group. We hit
+      // /me/summary unconditionally — the backend returns 404 (mapped to null
+      // in the service) for users without a group, so we just clear the state.
+      try {
+        setGroupLoading(true);
+        setGroupError("");
+        const summary = await getMyGroupSummary();
+        setGroupSummary(summary);
+      } catch (groupErr) {
+        setGroupError(groupErr.message);
+        setGroupSummary(null);
+      } finally {
+        setGroupLoading(false);
+      }
     } catch (err) { setError(err.message); } finally { setLoading(false); }
   }
 
@@ -427,6 +461,13 @@ export default function Dashboard() {
               <span>History</span>
               {transactions.length > 0 && <span className="db-pill-count">{transactions.length}</span>}
             </button>
+            {(savings?.groupName || groupSummary) && (
+              <button className={`db-pill ${activeView === "group" ? "db-pill-active" : ""}`} onClick={() => goTo("group")}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                <span>Group</span>
+                {groupSummary?.memberCount > 0 && <span className="db-pill-count">{groupSummary.memberCount}</span>}
+              </button>
+            )}
           </nav>
 
           <div className="db-nav-actions">
@@ -487,6 +528,9 @@ export default function Dashboard() {
           <button className={`db-pill ${activeView === "dashboard" ? "db-pill-active" : ""}`} onClick={() => goTo("dashboard")}>Overview</button>
           <button className={`db-pill ${activeView === "categories" ? "db-pill-active" : ""}`} onClick={() => goTo("categories")}>Categories</button>
           <button className={`db-pill ${activeView === "history" ? "db-pill-active" : ""}`} onClick={() => goTo("history")}>History</button>
+          {(savings?.groupName || groupSummary) && (
+            <button className={`db-pill ${activeView === "group" ? "db-pill-active" : ""}`} onClick={() => goTo("group")}>Group</button>
+          )}
         </nav>
       </header>
 
@@ -550,10 +594,11 @@ export default function Dashboard() {
 
               {/* BENTO GRID ===== */}
               <section className="db-bento">
-                {/* Big stat — Total Savings */}
+                {/* Big stat — Targeted Savings (sum of all category goal amounts) */}
                 <div className="db-bento-card db-bento-savings">
-                  <span className="db-bento-label">Total Savings</span>
+                  <span className="db-bento-label">Targeted Savings</span>
                   <span className="db-bento-value">{fmtCurrency(totalSavings)}</span>
+                  <span className="db-bento-sublabel">Combined goal across all your categories</span>
                   <div className="db-bento-meta">
                     <span className="db-bento-meta-pos">
                       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></svg>
@@ -869,6 +914,298 @@ export default function Dashboard() {
                                     </div>
                                   ) : <span className="db-tx-no-goal">—</span>}
                                 </td>
+                                <td>{tx.note || "—"}</td>
+                                <td className="db-tx-date">{formatDatePH(tx.dateTime)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
+          )}
+
+          {/* ════════ GROUP VIEW ════════ */}
+          {activeView === "group" && (
+            <section className="db-section">
+              <div className="db-section-head">
+                <div>
+                  <span className="db-section-eyebrow">Team savings</span>
+                  <h2>{groupSummary?.groupName || savings?.groupName || "Your group"}</h2>
+                  <p>
+                    {groupSummary
+                      ? `${groupSummary.memberCount} member${groupSummary.memberCount !== 1 ? "s" : ""} · combined savings activity`
+                      : groupLoading
+                        ? "Loading group summary…"
+                        : "You belong to a group. Combined totals load when ready."}
+                  </p>
+                  {groupSummary?.description && (
+                    <p className="db-group-desc">{groupSummary.description}</p>
+                  )}
+                </div>
+              </div>
+
+              {groupError && (
+                <div className="db-toast db-toast-error" style={{ position: "static", marginBottom: 16 }}>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                  {groupError}
+                </div>
+              )}
+
+              {groupLoading && !groupSummary ? (
+                <div className="db-loading"><div className="db-spinner-lg" /><p>Loading group…</p></div>
+              ) : !groupSummary ? (
+                <div className="db-empty">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
+                  <p>No group data available</p>
+                  <span>Ask your administrator to assign you to a group.</span>
+                </div>
+              ) : (
+                <>
+                  {/* Combined stat cards */}
+                  <div className="db-group-stats">
+                    <div className="db-group-stat db-group-stat-primary">
+                      <span className="db-group-stat-label">Group Targeted Savings</span>
+                      <span className="db-group-stat-value">{fmtCurrency(groupSummary.totalTargetedAmount)}</span>
+                      <span className="db-group-stat-sub">Combined goals across {groupSummary.memberCount} member{groupSummary.memberCount !== 1 ? "s" : ""}</span>
+                    </div>
+                    <div className="db-group-stat">
+                      <div className="db-group-stat-icon db-mini-blue">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></svg>
+                      </div>
+                      <span className="db-group-stat-label">Total Deposited</span>
+                      <span className="db-group-stat-value">{fmtCurrency(groupSummary.totalDepositedAmount)}</span>
+                    </div>
+                    <div className="db-group-stat">
+                      <div className="db-group-stat-icon db-mini-amber">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6" /><polyline points="17 18 23 18 23 12" /></svg>
+                      </div>
+                      <span className="db-group-stat-label">Total Withdrawn</span>
+                      <span className="db-group-stat-value">{fmtCurrency(groupSummary.totalWithdrawnAmount)}</span>
+                    </div>
+                    <div className="db-group-stat">
+                      <div className="db-group-stat-icon db-mini-purple">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /></svg>
+                      </div>
+                      <span className="db-group-stat-label">Categories</span>
+                      <span className="db-group-stat-value">{groupSummary.totalCategoryCount}</span>
+                    </div>
+                    <div className="db-group-stat">
+                      <div className="db-group-stat-icon db-mini-blue">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                      </div>
+                      <span className="db-group-stat-label">Transactions</span>
+                      <span className="db-group-stat-value">{groupSummary.totalTransactionCount}</span>
+                    </div>
+                    {groupSummary.sharedCategories?.length > 0 && (
+                      <div className="db-group-stat">
+                        <div className="db-group-stat-icon db-mini-purple">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></svg>
+                        </div>
+                        <span className="db-group-stat-label">Shared categories</span>
+                        <span className="db-group-stat-value">{groupSummary.sharedCategories.length}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Members breakdown */}
+                  <div className="db-group-section-title">
+                    <h3>Members</h3>
+                    <span>{groupSummary.members.length} {groupSummary.members.length === 1 ? "person" : "people"}</span>
+                  </div>
+                  <div className="db-group-members">
+                    {groupSummary.members.map((m) => {
+                      const initialsM = `${(m.firstName?.[0] || "").toUpperCase()}${(m.lastName?.[0] || "").toUpperCase()}`;
+                      const target = m.targetedAmount || 0;
+                      const deposited = m.depositedAmount || 0;
+                      const pct = target > 0 ? Math.min((deposited / target) * 100, 100) : 0;
+                      const me = m.id === userId;
+                      return (
+                        <article className={`db-group-member-card ${me ? "db-group-member-me" : ""}`} key={m.id}>
+                          <div className="db-group-member-head">
+                            <span className="db-group-member-avatar">{initialsM || "?"}</span>
+                            <div className="db-group-member-id">
+                              <span className="db-group-member-name">
+                                {m.firstName} {m.lastName}
+                                {me && <span className="db-group-member-you">You</span>}
+                              </span>
+                              <span className="db-group-member-email">{m.email}</span>
+                            </div>
+                          </div>
+                          <dl className="db-group-member-stats">
+                            <div>
+                              <dt>Targeted</dt>
+                              <dd>{fmtCurrency(target)}</dd>
+                            </div>
+                            <div>
+                              <dt>Deposited</dt>
+                              <dd>{fmtCurrency(deposited)}</dd>
+                            </div>
+                            <div>
+                              <dt>Withdrawn</dt>
+                              <dd>{fmtCurrency(m.withdrawnAmount)}</dd>
+                            </div>
+                            <div>
+                              <dt>Categories</dt>
+                              <dd>{m.categoryCount}</dd>
+                            </div>
+                          </dl>
+                          {target > 0 && (
+                            <>
+                              <div className="db-cat-bar">
+                                <div className={`db-cat-bar-fill ${pct >= 100 ? "db-prog-green" : pct >= 50 ? "db-prog-blue" : "db-prog-orange"}`} style={{ width: `${pct}%` }} />
+                              </div>
+                              <div className="db-cat-bar-meta">
+                                <span>{pct.toFixed(0)}% funded</span>
+                                <span>Remaining {fmtCurrency(Math.max(target - deposited, 0))}</span>
+                              </div>
+                            </>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+
+                  {/* Shared categories — categories tracked by 2+ members */}
+                  {groupSummary.sharedCategories?.length > 0 && (
+                    <>
+                      <div className="db-group-section-title">
+                        <h3>Shared Categories</h3>
+                        <span>
+                          {groupSummary.sharedCategories.length} {groupSummary.sharedCategories.length === 1 ? "category" : "categories"} tracked together
+                        </span>
+                      </div>
+                      <p className="db-group-shared-hint">
+                        Categories with the same name across members are combined here so the whole group can track progress against shared goals.
+                      </p>
+                      <div className="db-group-shared-grid">
+                        {groupSummary.sharedCategories.map((sc) => {
+                          const target = sc.totalTargetedAmount || 0;
+                          const deposited = sc.totalDepositedAmount || 0;
+                          const withdrawn = sc.totalWithdrawnAmount || 0;
+                          const pct = target > 0 ? Math.min((deposited / target) * 100, 100) : 0;
+                          const reached = pct >= 100;
+                          const progressClass = reached ? "db-prog-green" : pct >= 50 ? "db-prog-blue" : "db-prog-orange";
+                          return (
+                            <article className="db-group-shared-card" key={sc.name}>
+                              <header className="db-group-shared-head">
+                                <div className="db-group-shared-titles">
+                                  <span className="db-group-shared-name">{sc.name}</span>
+                                  {sc.type && <span className="db-cat-tag">{getTypeLabel(sc.type)}</span>}
+                                </div>
+                                <span className="db-group-shared-count">
+                                  {sc.contributorCount} {sc.contributorCount === 1 ? "member" : "members"}
+                                </span>
+                              </header>
+
+                              {reached && <div className="db-cat-reached">Goal reached!</div>}
+
+                              <div className="db-cat-amounts">
+                                <div>
+                                  <span className="db-cat-num-label">Combined saved</span>
+                                  <span className="db-cat-num-value">{fmtCurrency(deposited)}</span>
+                                </div>
+                                <span className="db-cat-num-sep">/</span>
+                                <div>
+                                  <span className="db-cat-num-label">Combined goal</span>
+                                  <span className="db-cat-num-value db-cat-num-goal">{fmtCurrency(target)}</span>
+                                </div>
+                              </div>
+
+                              {target > 0 && (
+                                <>
+                                  <div className="db-cat-bar">
+                                    <div className={`db-cat-bar-fill ${progressClass}`} style={{ width: `${pct}%` }} />
+                                  </div>
+                                  <div className="db-cat-bar-meta">
+                                    <span>{pct.toFixed(0)}% funded</span>
+                                    <span>Remaining {fmtCurrency(Math.max(target - deposited, 0))}</span>
+                                  </div>
+                                </>
+                              )}
+
+                              {withdrawn > 0 && (
+                                <div className="db-group-shared-extra">
+                                  <span>Combined withdrawn</span>
+                                  <span className="db-amt-neg">-{fmtCurrency(withdrawn)}</span>
+                                </div>
+                              )}
+
+                              <div className="db-group-shared-contributors">
+                                <span className="db-group-shared-contributors-label">Contributors</span>
+                                <ul>
+                                  {sc.contributors
+                                    .slice()
+                                    .sort((a, b) => (b.depositedAmount || 0) - (a.depositedAmount || 0))
+                                    .map((c) => {
+                                      const cInitials = `${(c.firstName?.[0] || "").toUpperCase()}${(c.lastName?.[0] || "").toUpperCase()}`;
+                                      const me = c.userId === userId;
+                                      const cTarget = c.targetedAmount || 0;
+                                      const cDeposited = c.depositedAmount || 0;
+                                      const cPct = cTarget > 0 ? Math.min((cDeposited / cTarget) * 100, 100) : 0;
+                                      return (
+                                        <li key={`${c.userId}-${c.categoryId}`}>
+                                          <span className="db-group-shared-contrib-avatar">{cInitials || "?"}</span>
+                                          <div className="db-group-shared-contrib-id">
+                                            <span className="db-group-shared-contrib-name">
+                                              {c.firstName} {c.lastName}
+                                              {me && <span className="db-group-member-you">You</span>}
+                                            </span>
+                                            <span className="db-group-shared-contrib-meta">
+                                              Saved {fmtCurrency(cDeposited)} of {fmtCurrency(cTarget)}
+                                              {cTarget > 0 && ` · ${cPct.toFixed(0)}%`}
+                                            </span>
+                                          </div>
+                                        </li>
+                                      );
+                                    })}
+                                </ul>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Combined transaction history */}
+                  <div className="db-group-section-title">
+                    <h3>Combined Transaction History</h3>
+                    <span>{groupSummary.transactions.length} total</span>
+                  </div>
+                  {groupSummary.transactions.length === 0 ? (
+                    <div className="db-empty">
+                      <p>No group transactions yet</p>
+                      <span>Once members start saving, their activity will appear here.</span>
+                    </div>
+                  ) : (
+                    <div className="db-tx-wrapper">
+                      <table className="db-tx-table">
+                        <thead>
+                          <tr>
+                            <th>Type</th>
+                            <th>Member</th>
+                            <th>Category</th>
+                            <th>Amount</th>
+                            <th>Note</th>
+                            <th>Date &amp; Time</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {groupSummary.transactions.map((tx, idx) => {
+                            const isD = tx.transactionType === "DEPOSIT";
+                            const amt = isD ? tx.amount : tx.withdrawalAmount;
+                            const member = groupSummary.members.find((m) => m.id === tx.userId);
+                            const memberName = member ? `${member.firstName} ${member.lastName}` : "—";
+                            return (
+                              <tr key={`${tx.transactionType}-${tx.id ?? idx}`}>
+                                <td><span className={`db-tx-badge ${isD ? "db-tx-dep" : "db-tx-with"}`}>{isD ? "Deposit" : "Withdrawal"}</span></td>
+                                <td>{memberName}</td>
+                                <td>{tx.categoryName || "—"}</td>
+                                <td className={isD ? "db-amt-pos" : "db-amt-neg"}>{isD ? "+" : "-"}{fmtCurrency(amt)}</td>
                                 <td>{tx.note || "—"}</td>
                                 <td className="db-tx-date">{formatDatePH(tx.dateTime)}</td>
                               </tr>

@@ -13,6 +13,14 @@ import {
   updateCategoryType,
   deleteCategoryType,
 } from "../../services/categoryTypesService";
+import {
+  getAllGroups,
+  createGroup,
+  updateGroup,
+  deleteGroup,
+  assignUserToGroup,
+  removeUserFromGroup,
+} from "../../services/groupService";
 import ThemeToggle from "../../components/ThemeToggle";
 import "./Admin.css";
 
@@ -34,7 +42,7 @@ export default function Admin() {
   const adminName = currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : "Admin";
 
   // Active admin tab
-  const [adminTab, setAdminTab] = useState("users"); // "users" | "types"
+  const [adminTab, setAdminTab] = useState("users"); // "users" | "types" | "groups"
 
   // ── User Management State ──
   const [users, setUsers] = useState([]);
@@ -58,6 +66,21 @@ export default function Admin() {
   const [deleteTypeConfirm, setDeleteTypeConfirm] = useState(null);
   const [typeSubmitting, setTypeSubmitting] = useState(false);
 
+  // ── Groups State ──
+  const [groups, setGroups] = useState([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [groupModalMode, setGroupModalMode] = useState("create"); // "create" | "edit"
+  const [editingGroupId, setEditingGroupId] = useState(null);
+  const [groupName, setGroupName] = useState("");
+  const [groupDescription, setGroupDescription] = useState("");
+  const [groupSubmitting, setGroupSubmitting] = useState(false);
+  const [deleteGroupConfirm, setDeleteGroupConfirm] = useState(null);
+  const [assignModalUser, setAssignModalUser] = useState(null); // user object to assign
+  const [assignSelectedGroupId, setAssignSelectedGroupId] = useState("");
+  const [assignSubmitting, setAssignSubmitting] = useState(false);
+  const [groupSearch, setGroupSearch] = useState("");
+
   // ── Profile menu (avatar dropdown) ──
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -68,6 +91,7 @@ export default function Admin() {
   useEffect(() => {
     fetchUsers();
     fetchCategoryTypes();
+    fetchGroups();
   }, []);
 
   async function fetchCategoryTypes() {
@@ -76,6 +100,115 @@ export default function Admin() {
       setCategoryTypes(types);
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  async function fetchGroups() {
+    setGroupsLoading(true);
+    try {
+      const list = await getAllGroups();
+      setGroups(list);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGroupsLoading(false);
+    }
+  }
+
+  function openCreateGroupModal() {
+    setGroupModalMode("create");
+    setEditingGroupId(null);
+    setGroupName("");
+    setGroupDescription("");
+    setShowGroupModal(true);
+  }
+
+  function openEditGroupModal(group) {
+    setGroupModalMode("edit");
+    setEditingGroupId(group.id);
+    setGroupName(group.name || "");
+    setGroupDescription(group.description || "");
+    setShowGroupModal(true);
+  }
+
+  function closeGroupModal() {
+    setShowGroupModal(false);
+    setEditingGroupId(null);
+    setGroupName("");
+    setGroupDescription("");
+  }
+
+  async function handleGroupSubmit(e) {
+    e.preventDefault();
+    setError("");
+    setGroupSubmitting(true);
+    try {
+      if (groupModalMode === "create") {
+        await createGroup(groupName.trim(), groupDescription.trim() || null);
+        setSuccess("Group created successfully!");
+      } else {
+        await updateGroup(editingGroupId, groupName.trim(), groupDescription.trim() || null);
+        setSuccess("Group updated successfully!");
+      }
+      await fetchGroups();
+      // Refresh users so newly visible groupName/groupId reflects in their cards too.
+      await fetchUsers();
+      closeGroupModal();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGroupSubmitting(false);
+    }
+  }
+
+  async function handleDeleteGroup() {
+    if (!deleteGroupConfirm) return;
+    setError("");
+    try {
+      await deleteGroup(deleteGroupConfirm.id);
+      setSuccess(`Group "${deleteGroupConfirm.name}" deleted!`);
+      setDeleteGroupConfirm(null);
+      await fetchGroups();
+      await fetchUsers();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function openAssignGroupModal(user) {
+    setAssignModalUser(user);
+    setAssignSelectedGroupId(user.groupId ? String(user.groupId) : "");
+  }
+
+  function closeAssignGroupModal() {
+    setAssignModalUser(null);
+    setAssignSelectedGroupId("");
+  }
+
+  async function handleAssignGroupSubmit(e) {
+    e.preventDefault();
+    if (!assignModalUser) return;
+    setError("");
+    setAssignSubmitting(true);
+    try {
+      if (!assignSelectedGroupId) {
+        await removeUserFromGroup(assignModalUser.id);
+        setSuccess(`Removed ${assignModalUser.firstName} from their group.`);
+      } else {
+        await assignUserToGroup(Number(assignSelectedGroupId), assignModalUser.id);
+        const groupName = groups.find((g) => g.id === Number(assignSelectedGroupId))?.name;
+        setSuccess(
+          groupName
+            ? `Assigned ${assignModalUser.firstName} to "${groupName}".`
+            : "User group updated.",
+        );
+      }
+      await Promise.all([fetchGroups(), fetchUsers()]);
+      closeAssignGroupModal();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAssignSubmitting(false);
     }
   }
 
@@ -390,6 +523,11 @@ export default function Admin() {
             <span>Category Types</span>
             <span className="ad-tab-count">{categoryTypes.length}</span>
           </button>
+          <button className={`ad-tab ${adminTab === "groups" ? "ad-tab-active" : ""}`} onClick={() => setAdminTab("groups")}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+            <span>Groups</span>
+            <span className="ad-tab-count">{groups.length}</span>
+          </button>
         </div>
 
         {/* ═════════════════ USERS TAB ═════════════════ */}
@@ -451,11 +589,25 @@ export default function Admin() {
                           <dt>Monthly Salary</dt>
                           <dd>{user.monthlySalary != null ? `₱${Number(user.monthlySalary).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</dd>
                         </div>
+                        <div>
+                          <dt>Group</dt>
+                          <dd>
+                            {user.groupName ? (
+                              <span className="ad-group-pill">{user.groupName}</span>
+                            ) : (
+                              <span className="ad-group-pill ad-group-pill-empty">No group</span>
+                            )}
+                          </dd>
+                        </div>
                       </dl>
                       <div className="ad-user-actions">
                         <button className="ad-btn-ghost" onClick={() => openEditModal(user)}>
                           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
                           Edit
+                        </button>
+                        <button className="ad-btn-ghost" onClick={() => openAssignGroupModal(user)} title="Assign or change group">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                          Group
                         </button>
                         <button className="ad-btn-ghost ad-btn-ghost-danger" onClick={() => setDeleteConfirm(user.id)}>
                           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
@@ -511,6 +663,99 @@ export default function Admin() {
                     </div>
                   </article>
                 ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ═════════════════ GROUPS TAB ═════════════════ */}
+        {adminTab === "groups" && (
+          <section className="ad-section">
+            <div className="ad-section-toolbar">
+              <div className="ad-section-info">
+                <h2>User Groups</h2>
+                <p>Group users together so members of the same group can view each other&apos;s combined savings totals. Users with no group keep their data fully private.</p>
+              </div>
+              <div className="ad-search">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+                <input type="text" placeholder="Search groups…" value={groupSearch} onChange={(e) => setGroupSearch(e.target.value)} />
+                {groupSearch && (
+                  <button className="ad-search-clear" onClick={() => setGroupSearch("")}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                  </button>
+                )}
+              </div>
+              <button className="ad-btn-primary" onClick={openCreateGroupModal}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                New group
+              </button>
+            </div>
+
+            {groupsLoading ? (
+              <div className="ad-loading"><div className="ad-spinner-lg" /><p>Loading groups…</p></div>
+            ) : groups.length === 0 ? (
+              <div className="ad-empty">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
+                <p>No groups yet</p>
+                <span>Create one and start assigning users.</span>
+              </div>
+            ) : (
+              <div className="ad-group-grid">
+                {groups
+                  .filter((g) => !groupSearch.trim() || (g.name || "").toLowerCase().includes(groupSearch.toLowerCase()))
+                  .map((group) => {
+                    const totalTargeted = (group.members || []).reduce((s, m) => s + (m.targetedAmount || 0), 0);
+                    const totalDeposited = (group.members || []).reduce((s, m) => s + (m.depositedAmount || 0), 0);
+                    return (
+                      <article className="ad-group-card" key={group.id}>
+                        <div className="ad-group-card-head">
+                          <div className="ad-group-card-titles">
+                            <span className="ad-group-card-name">{group.name}</span>
+                            {group.description && <span className="ad-group-card-desc">{group.description}</span>}
+                          </div>
+                          <span className="ad-group-card-count">{group.memberCount} {group.memberCount === 1 ? "member" : "members"}</span>
+                        </div>
+
+                        <dl className="ad-group-card-stats">
+                          <div>
+                            <dt>Targeted total</dt>
+                            <dd>₱{Number(totalTargeted).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</dd>
+                          </div>
+                          <div>
+                            <dt>Deposited total</dt>
+                            <dd>₱{Number(totalDeposited).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</dd>
+                          </div>
+                        </dl>
+
+                        {group.members && group.members.length > 0 ? (
+                          <ul className="ad-group-card-members">
+                            {group.members.slice(0, 4).map((m) => (
+                              <li key={m.id}>
+                                <span className="ad-group-card-member-avatar">{(m.firstName?.[0] || "") + (m.lastName?.[0] || "")}</span>
+                                <span className="ad-group-card-member-name">{m.firstName} {m.lastName}</span>
+                              </li>
+                            ))}
+                            {group.members.length > 4 && (
+                              <li className="ad-group-card-member-more">+{group.members.length - 4} more</li>
+                            )}
+                          </ul>
+                        ) : (
+                          <p className="ad-group-card-empty">No members yet — assign users from the Users tab.</p>
+                        )}
+
+                        <div className="ad-group-card-actions">
+                          <button className="ad-btn-ghost" onClick={() => openEditGroupModal(group)}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
+                            Edit
+                          </button>
+                          <button className="ad-btn-ghost ad-btn-ghost-danger" onClick={() => setDeleteGroupConfirm(group)}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
+                            Delete
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
               </div>
             )}
           </section>
@@ -659,6 +904,110 @@ export default function Admin() {
                 <button type="button" className="ad-btn-cancel" onClick={closeTypeModal}>Cancel</button>
                 <button type="submit" className="ad-btn-submit ad-btn-submit-purple" disabled={typeSubmitting}>
                   {typeSubmitting ? <span className="ad-spinner-sm" /> : typeModalMode === "add" ? "Add Type" : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Create / Edit Group Modal ── */}
+      {showGroupModal && (
+        <div className="ad-modal-overlay" onClick={closeGroupModal}>
+          <div className="ad-modal-box ad-modal-narrow" onClick={(e) => e.stopPropagation()}>
+            <div className="ad-modal-head">
+              <h2>{groupModalMode === "create" ? "Create Group" : "Edit Group"}</h2>
+              <button className="ad-modal-close" onClick={closeGroupModal}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            </div>
+            <form onSubmit={handleGroupSubmit} className="ad-modal-form">
+              <div className="ad-modal-field">
+                <label htmlFor="groupName">Group name *</label>
+                <input
+                  id="groupName"
+                  type="text"
+                  placeholder="e.g. Investor, Saver, Family"
+                  value={groupName}
+                  onChange={(e) => setGroupName(e.target.value)}
+                  maxLength={80}
+                  required
+                />
+              </div>
+              <div className="ad-modal-field">
+                <label htmlFor="groupDescription">Description (optional)</label>
+                <textarea
+                  id="groupDescription"
+                  placeholder="What is this group for?"
+                  value={groupDescription}
+                  onChange={(e) => setGroupDescription(e.target.value)}
+                  maxLength={500}
+                  rows={3}
+                />
+              </div>
+              <div className="ad-modal-actions">
+                <button type="button" className="ad-btn-cancel" onClick={closeGroupModal}>Cancel</button>
+                <button type="submit" className="ad-btn-submit" disabled={groupSubmitting}>
+                  {groupSubmitting ? <span className="ad-spinner-sm" /> : groupModalMode === "create" ? "Create Group" : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Group Confirmation Modal ── */}
+      {deleteGroupConfirm !== null && (
+        <div className="ad-modal-overlay" onClick={() => setDeleteGroupConfirm(null)}>
+          <div className="ad-modal-box ad-modal-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="ad-modal-warn">
+              <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+            </div>
+            <h2>Delete Group</h2>
+            <p>Are you sure you want to delete <strong>&ldquo;{deleteGroupConfirm.name}&rdquo;</strong>?</p>
+            <p className="ad-modal-warn-text">All {deleteGroupConfirm.memberCount} member(s) will be detached from this group, but their personal savings will remain untouched.</p>
+            <div className="ad-modal-actions ad-modal-actions-center">
+              <button className="ad-btn-cancel" onClick={() => setDeleteGroupConfirm(null)}>Cancel</button>
+              <button className="ad-btn-danger" onClick={handleDeleteGroup}>Delete Group</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Assign / Change Group Modal ── */}
+      {assignModalUser !== null && (
+        <div className="ad-modal-overlay" onClick={closeAssignGroupModal}>
+          <div className="ad-modal-box ad-modal-narrow" onClick={(e) => e.stopPropagation()}>
+            <div className="ad-modal-head">
+              <h2>Assign group</h2>
+              <button className="ad-modal-close" onClick={closeAssignGroupModal}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            </div>
+            <form onSubmit={handleAssignGroupSubmit} className="ad-modal-form">
+              <p className="ad-modal-subtitle">
+                Choose a group for <strong>{assignModalUser.firstName} {assignModalUser.lastName}</strong>.
+              </p>
+              <div className="ad-modal-field">
+                <label htmlFor="assignGroupSelect">Group</label>
+                <select
+                  id="assignGroupSelect"
+                  value={assignSelectedGroupId}
+                  onChange={(e) => setAssignSelectedGroupId(e.target.value)}
+                >
+                  <option value="">— No group (private) —</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+              </div>
+              {groups.length === 0 && (
+                <p className="ad-modal-warn-text">No groups exist yet. Create one in the Groups tab first.</p>
+              )}
+              <div className="ad-modal-actions">
+                <button type="button" className="ad-btn-cancel" onClick={closeAssignGroupModal}>Cancel</button>
+                <button type="submit" className="ad-btn-submit" disabled={assignSubmitting}>
+                  {assignSubmitting ? <span className="ad-spinner-sm" /> : "Save"}
                 </button>
               </div>
             </form>
