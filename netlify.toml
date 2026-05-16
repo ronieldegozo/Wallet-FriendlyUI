@@ -1,0 +1,34 @@
+# Wallet Friendly UI — Netlify build configuration
+#
+# This file is committed to the frontend repo (Wallet-FriendlyUI) and is
+# applied by EVERY Netlify site that deploys this repo — both the
+# production site (`wallet-friends.netlify.app`) and the staging site
+# (`wallet-friends-staging.netlify.app`). The two sites differ only by
+# (a) the branch each one tracks and (b) any per-site env vars set in
+# the Netlify dashboard.
+#
+# Why we keep it in code: this guarantees both sites build the same
+# way — same command, same output folder — so the staging deploy can
+# never accidentally drift from production because someone changed a
+# checkbox in the dashboard.
+
+[build]
+  command = "npm ci && npm run build"
+  publish = "dist"
+
+# Default env vars for the *production* deploy context. The site that
+# is configured in Netlify with a "production branch" of `main` will
+# pick these up automatically.
+[context.production.environment]
+  VITE_ENV = "production"
+
+# Overrides applied automatically whenever Netlify builds from a
+# branch named `staging`. Any Netlify site whose production branch
+# is `staging` will pick these up — that's your staging site.
+[context.staging.environment]
+  VITE_ENV = "staging"
+
+# Deploy previews (pull requests) also get the staging banner so
+# you immediately see "this isn't prod" while reviewing changes.
+[context.deploy-preview.environment]
+  VITE_ENV = "staging"

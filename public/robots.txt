@@ -1,0 +1,5 @@
+# Wallet Friendly is a portfolio / personal-finance project, not a public
+# service. We don't want either the production or the staging deploys
+# showing up in Google / Bing results, so all crawlers are blocked.
+User-agent: *
+Disallow: /

@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login/Login";
 import Dashboard from "./pages/Dashboard/Dashboard";
 import Admin from "./pages/Admin/Admin";
+import StagingBanner from "./components/StagingBanner/StagingBanner";
 import { getUserFromToken } from "./services/tokenUtils";
 import { applyTheme } from "./services/themeService";
 
@@ -23,6 +24,7 @@ function AdminRoute({ children }) {
 function App() {
   return (
     <BrowserRouter>
+      <StagingBanner />
       <Routes>
         <Route path="/" element={<Login />} />
         <Route
