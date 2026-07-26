@@ -30,6 +30,16 @@ export async function getAllGroups() {
   return Array.isArray(data.data) ? data.data : []
 }
 
+/** GET /rest/v1/groups/me — returns only groups the caller belongs to. */
+export async function getMyGroups() {
+  const res = await fetch(`${API_BASE}/me`, { method: "GET", headers: authHeaders() })
+  if (res.status === 404) return []
+  const data = await safeJson(res)
+  if (!res.ok) throw new Error(extractError(data, "Failed to fetch your groups."))
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.")
+  return Array.isArray(data.data) ? data.data : []
+}
+
 /** POST /rest/v1/groups — admin only. */
 export async function createGroup(name, description) {
   const res = await fetch(API_BASE, {
@@ -56,7 +66,7 @@ export async function updateGroup(groupId, name, description) {
   return data.data
 }
 
-/** DELETE /rest/v1/groups/{id} — admin only. Detaches all members. */
+/** DELETE /rest/v1/groups/{id} — admin only. */
 export async function deleteGroup(groupId) {
   const res = await fetch(`${API_BASE}/${groupId}`, {
     method: "DELETE",
@@ -79,9 +89,9 @@ export async function assignUserToGroup(groupId, userId) {
   return data.data
 }
 
-/** DELETE /rest/v1/groups/members/{userId} — admin only. */
-export async function removeUserFromGroup(userId) {
-  const res = await fetch(`${API_BASE}/members/${userId}`, {
+/** DELETE /rest/v1/groups/{groupId}/members/{userId} — admin only. */
+export async function removeUserFromGroup(groupId, userId) {
+  const res = await fetch(`${API_BASE}/${groupId}/members/${userId}`, {
     method: "DELETE",
     headers: authHeaders(),
   })
@@ -90,25 +100,50 @@ export async function removeUserFromGroup(userId) {
   return true
 }
 
-/**
- * GET /rest/v1/groups/me/summary — any authenticated user.
- * Returns the aggregated summary for the caller's own group only.
- * Returns null when the caller has no group (404 from server).
- */
-export async function getMyGroupSummary() {
-  const res = await fetch(`${API_BASE}/me/summary`, {
-    method: "GET",
+/** POST /rest/v1/groups/{groupId}/deposit */
+export async function depositToGroup(groupId, amount, note, dateTime) {
+  const body = { amount: Number(amount), note }
+  if (dateTime) body.dateTime = dateTime
+  const res = await fetch(`${API_BASE}/${groupId}/deposit`, {
+    method: "POST",
     headers: authHeaders(),
+    body: JSON.stringify(body),
   })
-  if (res.status === 404) return null
   const data = await safeJson(res)
-  if (!res.ok) throw new Error(extractError(data, "Failed to fetch group summary."))
+  if (!res.ok) throw new Error(extractError(data, "Group deposit failed."))
   if (!data) throw new Error("Server is waking up. Please try again in a few seconds.")
   return data.data
 }
 
-/** GET /rest/v1/groups/{groupId}/summary — admin only. */
-export async function getAdminGroupSummary(groupId) {
+/** POST /rest/v1/groups/{groupId}/withdraw */
+export async function withdrawFromGroup(groupId, amount, note, dateTime) {
+  const body = { amount: Number(amount), note }
+  if (dateTime) body.dateTime = dateTime
+  const res = await fetch(`${API_BASE}/${groupId}/withdraw`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(body),
+  })
+  const data = await safeJson(res)
+  if (!res.ok) throw new Error(extractError(data, "Group withdrawal failed."))
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.")
+  return data.data
+}
+
+/** GET /rest/v1/groups/{groupId}/transactions */
+export async function getGroupTransactions(groupId) {
+  const res = await fetch(`${API_BASE}/${groupId}/transactions`, {
+    method: "GET",
+    headers: authHeaders(),
+  })
+  const data = await safeJson(res)
+  if (!res.ok) throw new Error(extractError(data, "Failed to fetch group transactions."))
+  if (!data) throw new Error("Server is waking up. Please try again in a few seconds.")
+  return Array.isArray(data.data) ? data.data : []
+}
+
+/** GET /rest/v1/groups/{groupId}/summary */
+export async function getGroupSummary(groupId) {
   const res = await fetch(`${API_BASE}/${groupId}/summary`, {
     method: "GET",
     headers: authHeaders(),

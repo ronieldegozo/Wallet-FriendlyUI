@@ -835,7 +835,8 @@
   color: var(--text-secondary);
 }
 .ad-modal-field input,
-.ad-modal-field select {
+.ad-modal-field select,
+.ad-modal-field textarea {
   padding: 11px 14px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
@@ -852,12 +853,44 @@
   background-repeat: no-repeat;
   background-position: right 12px center;
 }
-.ad-modal-field input::placeholder { color: var(--text-placeholder) }
+.ad-modal-field textarea { resize: vertical; min-height: 60px }
+.ad-modal-field input::placeholder,
+.ad-modal-field textarea::placeholder { color: var(--text-placeholder) }
 .ad-modal-field input:focus,
-.ad-modal-field select:focus {
+.ad-modal-field select:focus,
+.ad-modal-field textarea:focus {
   border-color: #8b5cf6;
   background: var(--bg-elevated);
   box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.18);
+}
+
+.ad-assign-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ad-assign-group-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+.ad-assign-group-remove {
+  display: grid; place-items: center;
+  width: 26px; height: 26px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.ad-assign-group-remove:hover {
+  background: var(--red-alpha);
+  color: var(--red-text);
 }
 
 .ad-modal-actions {
@@ -939,6 +972,11 @@
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(139, 92, 246, 0.18));
   color: #6366f1;
   border: 1px solid rgba(99, 102, 241, 0.3);
+}
+.ad-group-pills-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 .ad-group-pill-empty {
   background: var(--bg-tertiary);

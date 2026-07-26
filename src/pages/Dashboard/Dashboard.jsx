@@ -13,7 +13,12 @@ import {
 import { updateUser } from "../../services/userService";
 import { changePassword } from "../../services/authService";
 import { getCategoryTypes } from "../../services/categoryTypesService";
-import { getMyGroupSummary } from "../../services/groupService";
+import {
+  getMyGroups,
+  getGroupTransactions,
+  depositToGroup,
+  withdrawFromGroup,
+} from "../../services/groupService";
 import { subscribeToPush } from "../../services/pushService";
 import ThemeToggle from "../../components/ThemeToggle";
 import {
@@ -142,10 +147,27 @@ export default function Dashboard() {
   const [filterType, setFilterType] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
 
-  /* ── Group state — only populated when the user belongs to a group. */
-  const [groupSummary, setGroupSummary] = useState(null);
+  /* ── Group state ── */
+  const [myGroups, setMyGroups] = useState([]);
+  const [selectedGroupId, setSelectedGroupId] = useState(null);
+  const [groupTransactions, setGroupTransactions] = useState([]);
+  const [allGroupTransactions, setAllGroupTransactions] = useState([]);
   const [groupLoading, setGroupLoading] = useState(false);
   const [groupError, setGroupError] = useState("");
+
+  /* ── Group transaction filters ── */
+  const [groupTxSearch, setGroupTxSearch] = useState("");
+  const [groupTxFilterType, setGroupTxFilterType] = useState("all");
+  const [groupTxFilterMember, setGroupTxFilterMember] = useState("all");
+
+  /* ── Group deposit/withdraw modal ── */
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [groupModalType, setGroupModalType] = useState("deposit");
+  const [groupAmount, setGroupAmount] = useState("");
+  const [groupNote, setGroupNote] = useState("");
+  const [groupDate, setGroupDate] = useState("");
+  const [groupSubmitting, setGroupSubmitting] = useState(false);
+  const [groupTxError, setGroupTxError] = useState("");
 
   /* ── Data-freshness tracking — used to skip duplicate refetches when the
        user briefly alt-tabs back to the page. The previous implementation
@@ -215,6 +237,27 @@ export default function Dashboard() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [menuOpen]);
 
+  /* ── Load group transactions when selected group changes ── */
+  useEffect(() => {
+    if (!selectedGroupId) { setGroupTransactions([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const txs = await getGroupTransactions(selectedGroupId);
+        if (!cancelled) {
+          setGroupTransactions(txs);
+          setAllGroupTransactions((prev) => {
+            const others = prev.filter((t) => t.groupId !== selectedGroupId);
+            return [...others, ...txs];
+          });
+        }
+      } catch {
+        if (!cancelled) setGroupTransactions([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedGroupId]);
+
   /* ── Push notification state ── */
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
@@ -246,17 +289,22 @@ export default function Dashboard() {
       setTransactions(txRes.data || []);
       lastLoadedAtRef.current = Date.now();
 
-      // Group summary is only meaningful if this user is in a group. We hit
-      // /me/summary unconditionally — the backend returns 404 (mapped to null
-      // in the service) for users without a group, so we just clear the state.
       try {
         setGroupLoading(true);
         setGroupError("");
-        const summary = await getMyGroupSummary();
-        setGroupSummary(summary);
+        const groups = await getMyGroups();
+        setMyGroups(groups);
+        if (groups.length > 0 && !selectedGroupId) {
+          setSelectedGroupId(groups[0].id);
+        }
+        if (groups.length > 0) {
+          const allTxPromises = groups.map((g) => getGroupTransactions(g.id).catch(() => []));
+          const allTxArrays = await Promise.all(allTxPromises);
+          setAllGroupTransactions(allTxArrays.flat());
+        }
       } catch (groupErr) {
         setGroupError(groupErr.message);
-        setGroupSummary(null);
+        setMyGroups([]);
       } finally {
         setGroupLoading(false);
       }
@@ -461,11 +509,11 @@ export default function Dashboard() {
               <span>History</span>
               {transactions.length > 0 && <span className="db-pill-count">{transactions.length}</span>}
             </button>
-            {(savings?.groupName || groupSummary) && (
+            {myGroups.length > 0 && (
               <button className={`db-pill ${activeView === "group" ? "db-pill-active" : ""}`} onClick={() => goTo("group")}>
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-                <span>Group</span>
-                {groupSummary?.memberCount > 0 && <span className="db-pill-count">{groupSummary.memberCount}</span>}
+                <span>Groups</span>
+                <span className="db-pill-count">{myGroups.length}</span>
               </button>
             )}
           </nav>
@@ -528,8 +576,8 @@ export default function Dashboard() {
           <button className={`db-pill ${activeView === "dashboard" ? "db-pill-active" : ""}`} onClick={() => goTo("dashboard")}>Overview</button>
           <button className={`db-pill ${activeView === "categories" ? "db-pill-active" : ""}`} onClick={() => goTo("categories")}>Categories</button>
           <button className={`db-pill ${activeView === "history" ? "db-pill-active" : ""}`} onClick={() => goTo("history")}>History</button>
-          {(savings?.groupName || groupSummary) && (
-            <button className={`db-pill ${activeView === "group" ? "db-pill-active" : ""}`} onClick={() => goTo("group")}>Group</button>
+          {myGroups.length > 0 && (
+            <button className={`db-pill ${activeView === "group" ? "db-pill-active" : ""}`} onClick={() => goTo("group")}>Groups</button>
           )}
         </nav>
       </header>
@@ -933,18 +981,9 @@ export default function Dashboard() {
             <section className="db-section">
               <div className="db-section-head">
                 <div>
-                  <span className="db-section-eyebrow">Team savings</span>
-                  <h2>{groupSummary?.groupName || savings?.groupName || "Your group"}</h2>
-                  <p>
-                    {groupSummary
-                      ? `${groupSummary.memberCount} member${groupSummary.memberCount !== 1 ? "s" : ""} · combined savings activity`
-                      : groupLoading
-                        ? "Loading group summary…"
-                        : "You belong to a group. Combined totals load when ready."}
-                  </p>
-                  {groupSummary?.description && (
-                    <p className="db-group-desc">{groupSummary.description}</p>
-                  )}
+                  <span className="db-section-eyebrow">Shared savings</span>
+                  <h2>Your Groups</h2>
+                  <p>Each group is a separate savings pot. You can deposit and withdraw in each one independently.</p>
                 </div>
               </div>
 
@@ -955,266 +994,294 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {groupLoading && !groupSummary ? (
-                <div className="db-loading"><div className="db-spinner-lg" /><p>Loading group…</p></div>
-              ) : !groupSummary ? (
+              {groupLoading && myGroups.length === 0 ? (
+                <div className="db-loading"><div className="db-spinner-lg" /><p>Loading groups…</p></div>
+              ) : myGroups.length === 0 ? (
                 <div className="db-empty">
                   <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /></svg>
-                  <p>No group data available</p>
+                  <p>No groups yet</p>
                   <span>Ask your administrator to assign you to a group.</span>
                 </div>
               ) : (
                 <>
-                  {/* Combined stat cards */}
-                  <div className="db-group-stats">
-                    <div className="db-group-stat db-group-stat-primary">
-                      <span className="db-group-stat-label">Group Targeted Savings</span>
-                      <span className="db-group-stat-value">{fmtCurrency(groupSummary.totalTargetedAmount)}</span>
-                      <span className="db-group-stat-sub">Combined goals across {groupSummary.memberCount} member{groupSummary.memberCount !== 1 ? "s" : ""}</span>
-                    </div>
-                    <div className="db-group-stat">
-                      <div className="db-group-stat-icon db-mini-blue">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></svg>
-                      </div>
-                      <span className="db-group-stat-label">Total Deposited</span>
-                      <span className="db-group-stat-value">{fmtCurrency(groupSummary.totalDepositedAmount)}</span>
-                    </div>
-                    <div className="db-group-stat">
-                      <div className="db-group-stat-icon db-mini-amber">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6" /><polyline points="17 18 23 18 23 12" /></svg>
-                      </div>
-                      <span className="db-group-stat-label">Total Withdrawn</span>
-                      <span className="db-group-stat-value">{fmtCurrency(groupSummary.totalWithdrawnAmount)}</span>
-                    </div>
-                    <div className="db-group-stat">
-                      <div className="db-group-stat-icon db-mini-purple">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /></svg>
-                      </div>
-                      <span className="db-group-stat-label">Categories</span>
-                      <span className="db-group-stat-value">{groupSummary.totalCategoryCount}</span>
-                    </div>
-                    <div className="db-group-stat">
-                      <div className="db-group-stat-icon db-mini-blue">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-                      </div>
-                      <span className="db-group-stat-label">Transactions</span>
-                      <span className="db-group-stat-value">{groupSummary.totalTransactionCount}</span>
-                    </div>
-                    {groupSummary.sharedCategories?.length > 0 && (
-                      <div className="db-group-stat">
-                        <div className="db-group-stat-icon db-mini-purple">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></svg>
+                  {/* All-groups summary */}
+                  {(() => {
+                    const allDep = allGroupTransactions.filter((t) => t.transactionType === "DEPOSIT").reduce((s, t) => s + Number(t.amount || 0), 0);
+                    const allWith = allGroupTransactions.filter((t) => t.transactionType === "WITHDRAWAL").reduce((s, t) => s + Number(t.amount || 0), 0);
+                    const allNet = allDep - allWith;
+                    const myDep = allGroupTransactions.filter((t) => t.userId === userId && t.transactionType === "DEPOSIT").reduce((s, t) => s + Number(t.amount || 0), 0);
+                    const myWith = allGroupTransactions.filter((t) => t.userId === userId && t.transactionType === "WITHDRAWAL").reduce((s, t) => s + Number(t.amount || 0), 0);
+
+                    return (
+                      <div className="db-group-all-summary">
+                        <div className="db-group-all-summary-head">
+                          <h3>All Groups Summary</h3>
+                          <button
+                            className="db-action db-action-ghost"
+                            onClick={() => {
+                              const rows = [["Group", "Type", "Member", "Amount", "Note", "Date"]];
+                              allGroupTransactions.forEach((tx) => {
+                                rows.push([
+                                  tx.groupName || "",
+                                  tx.transactionType || "",
+                                  tx.userName || "",
+                                  tx.amount || 0,
+                                  (tx.note || "").replace(/"/g, '""'),
+                                  tx.dateTime ? new Date(tx.dateTime).toLocaleString() : "",
+                                ]);
+                              });
+                              const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
+                              const blob = new Blob([csv], { type: "text/csv" });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = `group-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+                              a.click();
+                              URL.revokeObjectURL(url);
+                            }}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                            Export CSV
+                          </button>
                         </div>
-                        <span className="db-group-stat-label">Shared categories</span>
-                        <span className="db-group-stat-value">{groupSummary.sharedCategories.length}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Members breakdown */}
-                  <div className="db-group-section-title">
-                    <h3>Members</h3>
-                    <span>{groupSummary.members.length} {groupSummary.members.length === 1 ? "person" : "people"}</span>
-                  </div>
-                  <div className="db-group-members">
-                    {groupSummary.members.map((m) => {
-                      const initialsM = `${(m.firstName?.[0] || "").toUpperCase()}${(m.lastName?.[0] || "").toUpperCase()}`;
-                      const target = m.targetedAmount || 0;
-                      const deposited = m.depositedAmount || 0;
-                      const pct = target > 0 ? Math.min((deposited / target) * 100, 100) : 0;
-                      const me = m.id === userId;
-                      return (
-                        <article className={`db-group-member-card ${me ? "db-group-member-me" : ""}`} key={m.id}>
-                          <div className="db-group-member-head">
-                            <span className="db-group-member-avatar">{initialsM || "?"}</span>
-                            <div className="db-group-member-id">
-                              <span className="db-group-member-name">
-                                {m.firstName} {m.lastName}
-                                {me && <span className="db-group-member-you">You</span>}
-                              </span>
-                              <span className="db-group-member-email">{m.email}</span>
-                            </div>
+                        <div className="db-group-stats db-group-stats-compact">
+                          <div className="db-group-stat db-group-stat-primary">
+                            <span className="db-group-stat-label">Total Net Balance</span>
+                            <span className="db-group-stat-value">{fmtCurrency(allNet)}</span>
+                            <span className="db-group-stat-sub">Across {myGroups.length} group{myGroups.length !== 1 ? "s" : ""}</span>
                           </div>
-                          <dl className="db-group-member-stats">
-                            <div>
-                              <dt>Targeted</dt>
-                              <dd>{fmtCurrency(target)}</dd>
+                          <div className="db-group-stat">
+                            <div className="db-group-stat-icon db-mini-blue">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></svg>
                             </div>
-                            <div>
-                              <dt>Deposited</dt>
-                              <dd>{fmtCurrency(deposited)}</dd>
+                            <span className="db-group-stat-label">All Deposited</span>
+                            <span className="db-group-stat-value">{fmtCurrency(allDep)}</span>
+                          </div>
+                          <div className="db-group-stat">
+                            <div className="db-group-stat-icon db-mini-amber">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6" /><polyline points="17 18 23 18 23 12" /></svg>
                             </div>
-                            <div>
-                              <dt>Withdrawn</dt>
-                              <dd>{fmtCurrency(m.withdrawnAmount)}</dd>
+                            <span className="db-group-stat-label">All Withdrawn</span>
+                            <span className="db-group-stat-value">{fmtCurrency(allWith)}</span>
+                          </div>
+                          <div className="db-group-stat">
+                            <div className="db-group-stat-icon db-mini-blue">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></svg>
                             </div>
-                            <div>
-                              <dt>Categories</dt>
-                              <dd>{m.categoryCount}</dd>
+                            <span className="db-group-stat-label">My Deposits</span>
+                            <span className="db-group-stat-value">{fmtCurrency(myDep)}</span>
+                          </div>
+                          <div className="db-group-stat">
+                            <div className="db-group-stat-icon db-mini-amber">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6" /><polyline points="17 18 23 18 23 12" /></svg>
                             </div>
-                          </dl>
-                          {target > 0 && (
-                            <>
-                              <div className="db-cat-bar">
-                                <div className={`db-cat-bar-fill ${pct >= 100 ? "db-prog-green" : pct >= 50 ? "db-prog-blue" : "db-prog-orange"}`} style={{ width: `${pct}%` }} />
-                              </div>
-                              <div className="db-cat-bar-meta">
-                                <span>{pct.toFixed(0)}% funded</span>
-                                <span>Remaining {fmtCurrency(Math.max(target - deposited, 0))}</span>
-                              </div>
-                            </>
-                          )}
-                        </article>
-                      );
-                    })}
+                            <span className="db-group-stat-label">My Withdrawals</span>
+                            <span className="db-group-stat-value">{fmtCurrency(myWith)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Group selector tabs */}
+                  <div className="db-group-tabs">
+                    {myGroups.map((g) => (
+                      <button
+                        key={g.id}
+                        className={`db-group-tab ${selectedGroupId === g.id ? "db-group-tab-active" : ""}`}
+                        onClick={() => setSelectedGroupId(g.id)}
+                      >
+                        {g.name}
+                        {g.memberCount != null && <span className="db-group-tab-badge">{g.memberCount}</span>}
+                      </button>
+                    ))}
                   </div>
 
-                  {/* Shared categories — categories tracked by 2+ members */}
-                  {groupSummary.sharedCategories?.length > 0 && (
-                    <>
-                      <div className="db-group-section-title">
-                        <h3>Shared Categories</h3>
-                        <span>
-                          {groupSummary.sharedCategories.length} {groupSummary.sharedCategories.length === 1 ? "category" : "categories"} tracked together
-                        </span>
-                      </div>
-                      <p className="db-group-shared-hint">
-                        Categories with the same name across members are combined here so the whole group can track progress against shared goals.
-                      </p>
-                      <div className="db-group-shared-grid">
-                        {groupSummary.sharedCategories.map((sc) => {
-                          const target = sc.totalTargetedAmount || 0;
-                          const deposited = sc.totalDepositedAmount || 0;
-                          const withdrawn = sc.totalWithdrawnAmount || 0;
-                          const pct = target > 0 ? Math.min((deposited / target) * 100, 100) : 0;
-                          const reached = pct >= 100;
-                          const progressClass = reached ? "db-prog-green" : pct >= 50 ? "db-prog-blue" : "db-prog-orange";
-                          return (
-                            <article className="db-group-shared-card" key={sc.name}>
-                              <header className="db-group-shared-head">
-                                <div className="db-group-shared-titles">
-                                  <span className="db-group-shared-name">{sc.name}</span>
-                                  {sc.type && <span className="db-cat-tag">{getTypeLabel(sc.type)}</span>}
-                                </div>
-                                <span className="db-group-shared-count">
-                                  {sc.contributorCount} {sc.contributorCount === 1 ? "member" : "members"}
-                                </span>
-                              </header>
+                  {/* Selected group detail */}
+                  {selectedGroupId && (() => {
+                    const selectedGroup = myGroups.find((g) => g.id === selectedGroupId);
 
-                              {reached && <div className="db-cat-reached">Goal reached!</div>}
+                    const totalDeposits = groupTransactions
+                      .filter((tx) => tx.transactionType === "DEPOSIT")
+                      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+                    const totalWithdrawals = groupTransactions
+                      .filter((tx) => tx.transactionType === "WITHDRAWAL")
+                      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+                    const netBalance = totalDeposits - totalWithdrawals;
 
-                              <div className="db-cat-amounts">
-                                <div>
-                                  <span className="db-cat-num-label">Combined saved</span>
-                                  <span className="db-cat-num-value">{fmtCurrency(deposited)}</span>
-                                </div>
-                                <span className="db-cat-num-sep">/</span>
-                                <div>
-                                  <span className="db-cat-num-label">Combined goal</span>
-                                  <span className="db-cat-num-value db-cat-num-goal">{fmtCurrency(target)}</span>
-                                </div>
+                    const myDeposits = groupTransactions
+                      .filter((tx) => tx.userId === userId && tx.transactionType === "DEPOSIT")
+                      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+                    const myWithdrawals = groupTransactions
+                      .filter((tx) => tx.userId === userId && tx.transactionType === "WITHDRAWAL")
+                      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
+                    const filteredGroupTx = groupTransactions.filter((tx) => {
+                      if (groupTxFilterType !== "all" && tx.transactionType !== groupTxFilterType) return false;
+                      if (groupTxFilterMember !== "all" && String(tx.userId) !== groupTxFilterMember) return false;
+                      if (groupTxSearch.trim()) {
+                        const q = groupTxSearch.toLowerCase();
+                        const isD = tx.transactionType === "DEPOSIT";
+                        const amt = Number(tx.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                        if (
+                          !(isD ? "deposit" : "withdrawal").includes(q) &&
+                          !(tx.userName || "").toLowerCase().includes(q) &&
+                          !amt.includes(q) &&
+                          !(tx.note || "").toLowerCase().includes(q) &&
+                          !formatDatePH(tx.dateTime).toLowerCase().includes(q)
+                        ) return false;
+                      }
+                      return true;
+                    });
+
+                    const grpTxMembers = [...new Map(
+                      groupTransactions.filter((tx) => tx.userId && tx.userName)
+                        .map((tx) => [String(tx.userId), tx.userName])
+                    ).entries()];
+
+                    return (
+                      <>
+                        <div className="db-group-detail-head">
+                          <div>
+                            <h3>{selectedGroup?.name || "Group"}</h3>
+                            {selectedGroup?.description && <p className="db-group-desc">{selectedGroup.description}</p>}
+                          </div>
+                          <div className="db-section-actions">
+                            <button className="db-action db-action-primary" onClick={() => { setGroupModalType("deposit"); setShowGroupModal(true); setGroupAmount(""); setGroupNote(""); setGroupDate(""); setGroupTxError(""); }}>
+                              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                              Deposit
+                            </button>
+                            <button className="db-action db-action-secondary" onClick={() => { setGroupModalType("withdraw"); setShowGroupModal(true); setGroupAmount(""); setGroupNote(""); setGroupDate(""); setGroupTxError(""); }}>
+                              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                              Withdraw
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Stats row */}
+                        <div className="db-group-stats">
+                          <div className="db-group-stat db-group-stat-primary">
+                            <span className="db-group-stat-label">Net Balance</span>
+                            <span className="db-group-stat-value">{fmtCurrency(netBalance)}</span>
+                            <span className="db-group-stat-sub">Group pot total</span>
+                          </div>
+                          <div className="db-group-stat">
+                            <div className="db-group-stat-icon db-mini-blue">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></svg>
+                            </div>
+                            <span className="db-group-stat-label">Total Deposited</span>
+                            <span className="db-group-stat-value">{fmtCurrency(totalDeposits)}</span>
+                          </div>
+                          <div className="db-group-stat">
+                            <div className="db-group-stat-icon db-mini-amber">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6" /><polyline points="17 18 23 18 23 12" /></svg>
+                            </div>
+                            <span className="db-group-stat-label">Total Withdrawn</span>
+                            <span className="db-group-stat-value">{fmtCurrency(totalWithdrawals)}</span>
+                          </div>
+                          <div className="db-group-stat">
+                            <div className="db-group-stat-icon db-mini-blue">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></svg>
+                            </div>
+                            <span className="db-group-stat-label">Your Deposits</span>
+                            <span className="db-group-stat-value">{fmtCurrency(myDeposits)}</span>
+                          </div>
+                          <div className="db-group-stat">
+                            <div className="db-group-stat-icon db-mini-amber">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6" /><polyline points="17 18 23 18 23 12" /></svg>
+                            </div>
+                            <span className="db-group-stat-label">Your Withdrawals</span>
+                            <span className="db-group-stat-value">{fmtCurrency(myWithdrawals)}</span>
+                          </div>
+                        </div>
+
+                        {/* Transaction history for selected group */}
+                        <div className="db-group-section-title">
+                          <h3>Transaction History</h3>
+                          <span>{groupTransactions.length} total</span>
+                        </div>
+
+                        {groupTransactions.length === 0 ? (
+                          <div className="db-empty">
+                            <p>No transactions in this group yet</p>
+                            <span>Use the Deposit button above to add money to this group's pot.</span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="db-filter-bar">
+                              <div className="db-filter-search">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+                                <input type="text" placeholder="Search transactions…" value={groupTxSearch} onChange={(e) => setGroupTxSearch(e.target.value)} />
+                                {groupTxSearch && (
+                                  <button className="db-filter-clear" onClick={() => setGroupTxSearch("")}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                                  </button>
+                                )}
                               </div>
+                              <div className="db-filter-selects">
+                                <select value={groupTxFilterType} onChange={(e) => setGroupTxFilterType(e.target.value)}>
+                                  <option value="all">All Types</option>
+                                  <option value="DEPOSIT">Deposit</option>
+                                  <option value="WITHDRAWAL">Withdrawal</option>
+                                </select>
+                                <select value={groupTxFilterMember} onChange={(e) => setGroupTxFilterMember(e.target.value)}>
+                                  <option value="all">All Members</option>
+                                  {grpTxMembers.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                                </select>
+                              </div>
+                            </div>
 
-                              {target > 0 && (
-                                <>
-                                  <div className="db-cat-bar">
-                                    <div className={`db-cat-bar-fill ${progressClass}`} style={{ width: `${pct}%` }} />
-                                  </div>
-                                  <div className="db-cat-bar-meta">
-                                    <span>{pct.toFixed(0)}% funded</span>
-                                    <span>Remaining {fmtCurrency(Math.max(target - deposited, 0))}</span>
-                                  </div>
-                                </>
-                              )}
+                            <div className="db-filter-summary">
+                              <span>
+                                Showing {filteredGroupTx.length} of {groupTransactions.length}
+                                {(groupTxSearch || groupTxFilterType !== "all" || groupTxFilterMember !== "all") && (
+                                  <button className="db-filter-reset" onClick={() => { setGroupTxSearch(""); setGroupTxFilterType("all"); setGroupTxFilterMember("all"); }}>Clear filters</button>
+                                )}
+                              </span>
+                            </div>
 
-                              {withdrawn > 0 && (
-                                <div className="db-group-shared-extra">
-                                  <span>Combined withdrawn</span>
-                                  <span className="db-amt-neg">-{fmtCurrency(withdrawn)}</span>
-                                </div>
-                              )}
-
-                              <div className="db-group-shared-contributors">
-                                <span className="db-group-shared-contributors-label">Contributors</span>
-                                <ul>
-                                  {sc.contributors
-                                    .slice()
-                                    .sort((a, b) => (b.depositedAmount || 0) - (a.depositedAmount || 0))
-                                    .map((c) => {
-                                      const cInitials = `${(c.firstName?.[0] || "").toUpperCase()}${(c.lastName?.[0] || "").toUpperCase()}`;
-                                      const me = c.userId === userId;
-                                      const cTarget = c.targetedAmount || 0;
-                                      const cDeposited = c.depositedAmount || 0;
-                                      const cPct = cTarget > 0 ? Math.min((cDeposited / cTarget) * 100, 100) : 0;
+                            {filteredGroupTx.length === 0 ? (
+                              <div className="db-empty"><p>No transactions match your filters.</p></div>
+                            ) : (
+                              <div className="db-tx-wrapper">
+                                <table className="db-tx-table">
+                                  <thead>
+                                    <tr>
+                                      <th>Type</th>
+                                      <th>Member</th>
+                                      <th>Amount</th>
+                                      <th>Note</th>
+                                      <th>Date &amp; Time</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {filteredGroupTx.map((tx, idx) => {
+                                      const isD = tx.transactionType === "DEPOSIT";
+                                      const me = tx.userId === userId;
                                       return (
-                                        <li key={`${c.userId}-${c.categoryId}`}>
-                                          <span className="db-group-shared-contrib-avatar">{cInitials || "?"}</span>
-                                          <div className="db-group-shared-contrib-id">
-                                            <span className="db-group-shared-contrib-name">
-                                              {c.firstName} {c.lastName}
+                                        <tr key={`${tx.transactionType}-${tx.id ?? idx}`}>
+                                          <td><span className={`db-tx-badge ${isD ? "db-tx-dep" : "db-tx-with"}`}>{isD ? "Deposit" : "Withdrawal"}</span></td>
+                                          <td>
+                                            <span className="db-group-tx-member">
+                                              {tx.userName || "—"}
                                               {me && <span className="db-group-member-you">You</span>}
                                             </span>
-                                            <span className="db-group-shared-contrib-meta">
-                                              Saved {fmtCurrency(cDeposited)} of {fmtCurrency(cTarget)}
-                                              {cTarget > 0 && ` · ${cPct.toFixed(0)}%`}
-                                            </span>
-                                          </div>
-                                        </li>
+                                          </td>
+                                          <td className={isD ? "db-amt-pos" : "db-amt-neg"}>{isD ? "+" : "-"}{fmtCurrency(tx.amount)}</td>
+                                          <td>{tx.note || "—"}</td>
+                                          <td className="db-tx-date">{formatDatePH(tx.dateTime)}</td>
+                                        </tr>
                                       );
                                     })}
-                                </ul>
+                                  </tbody>
+                                </table>
                               </div>
-                            </article>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-
-                  {/* Combined transaction history */}
-                  <div className="db-group-section-title">
-                    <h3>Combined Transaction History</h3>
-                    <span>{groupSummary.transactions.length} total</span>
-                  </div>
-                  {groupSummary.transactions.length === 0 ? (
-                    <div className="db-empty">
-                      <p>No group transactions yet</p>
-                      <span>Once members start saving, their activity will appear here.</span>
-                    </div>
-                  ) : (
-                    <div className="db-tx-wrapper">
-                      <table className="db-tx-table">
-                        <thead>
-                          <tr>
-                            <th>Type</th>
-                            <th>Member</th>
-                            <th>Category</th>
-                            <th>Amount</th>
-                            <th>Note</th>
-                            <th>Date &amp; Time</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {groupSummary.transactions.map((tx, idx) => {
-                            const isD = tx.transactionType === "DEPOSIT";
-                            const amt = isD ? tx.amount : tx.withdrawalAmount;
-                            const member = groupSummary.members.find((m) => m.id === tx.userId);
-                            const memberName = member ? `${member.firstName} ${member.lastName}` : "—";
-                            return (
-                              <tr key={`${tx.transactionType}-${tx.id ?? idx}`}>
-                                <td><span className={`db-tx-badge ${isD ? "db-tx-dep" : "db-tx-with"}`}>{isD ? "Deposit" : "Withdrawal"}</span></td>
-                                <td>{memberName}</td>
-                                <td>{tx.categoryName || "—"}</td>
-                                <td className={isD ? "db-amt-pos" : "db-amt-neg"}>{isD ? "+" : "-"}{fmtCurrency(amt)}</td>
-                                <td>{tx.note || "—"}</td>
-                                <td className="db-tx-date">{formatDatePH(tx.dateTime)}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                            )}
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
                 </>
               )}
             </section>
@@ -1223,6 +1290,103 @@ export default function Dashboard() {
           </>
         )}
       </main>
+
+      {/* ══════ GROUP DEPOSIT/WITHDRAW MODAL ══════ */}
+      {showGroupModal && (
+        <div className="db-modal-overlay" onClick={() => setShowGroupModal(false)}>
+          <div className="db-modal-box db-modal-narrow" onClick={(e) => e.stopPropagation()}>
+            <div className="db-modal-head">
+              <h2>{groupModalType === "deposit" ? "Deposit to Group" : "Withdraw from Group"}</h2>
+              <button className="db-modal-close" onClick={() => setShowGroupModal(false)}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            </div>
+            <p className="db-modal-group-name">
+              Group: <strong>{myGroups.find((g) => g.id === selectedGroupId)?.name || "—"}</strong>
+            </p>
+            {groupTxError && (
+              <div className="db-modal-err">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                <span>{groupTxError}</span>
+              </div>
+            )}
+            <form
+              className="db-modal-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setGroupSubmitting(true);
+                setGroupTxError("");
+                try {
+                  const dt = groupDate ? (groupDate.includes("T") ? groupDate + ":00" : groupDate + "T00:00:00") : null;
+                  if (groupModalType === "deposit") {
+                    await depositToGroup(selectedGroupId, groupAmount, groupNote, dt);
+                  } else {
+                    await withdrawFromGroup(selectedGroupId, groupAmount, groupNote, dt);
+                  }
+                  setShowGroupModal(false);
+                  const txs = await getGroupTransactions(selectedGroupId);
+                  setGroupTransactions(txs);
+                  setAllGroupTransactions((prev) => {
+                    const others = prev.filter((t) => t.groupId !== selectedGroupId);
+                    return [...others, ...txs];
+                  });
+                } catch (err) {
+                  setGroupTxError(err.message);
+                } finally {
+                  setGroupSubmitting(false);
+                }
+              }}
+            >
+              <div className="db-modal-field">
+                <label htmlFor="grpAmount">Amount</label>
+                <input
+                  id="grpAmount"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={groupAmount}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^0-9.]/g, "");
+                    const parts = raw.split(".");
+                    const cleaned = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join("")}` : raw;
+                    setGroupAmount(cleaned);
+                  }}
+                  required
+                />
+              </div>
+              <div className="db-modal-field">
+                <label htmlFor="grpDate">Date &amp; Time</label>
+                <input
+                  id="grpDate"
+                  type="datetime-local"
+                  value={groupDate}
+                  onChange={(e) => setGroupDate(e.target.value)}
+                />
+              </div>
+              <div className="db-modal-field">
+                <label htmlFor="grpNote">Note (optional)</label>
+                <input
+                  id="grpNote"
+                  type="text"
+                  placeholder="E.g. monthly contribution"
+                  value={groupNote}
+                  onChange={(e) => setGroupNote(e.target.value)}
+                />
+              </div>
+              <div className="db-modal-actions">
+                <button type="button" className="db-btn-cancel" onClick={() => setShowGroupModal(false)}>Cancel</button>
+                <button
+                  type="submit"
+                  className={groupModalType === "withdraw" ? "db-btn-danger" : "db-btn-submit"}
+                  disabled={groupSubmitting || !groupAmount || Number(groupAmount) <= 0}
+                >
+                  {groupSubmitting ? <span className="db-spinner-sm" /> : groupModalType === "deposit" ? "Deposit" : "Withdraw"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* ══════ ALL MODALS (preserved) ══════ */}
 

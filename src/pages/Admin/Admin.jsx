@@ -151,8 +151,7 @@ export default function Admin() {
         setSuccess("Group updated successfully!");
       }
       await fetchGroups();
-      // Refresh users so newly visible groupName/groupId reflects in their cards too.
-      await fetchUsers();
+      await fetchUsers(false);
       closeGroupModal();
     } catch (err) {
       setError(err.message);
@@ -169,7 +168,7 @@ export default function Admin() {
       setSuccess(`Group "${deleteGroupConfirm.name}" deleted!`);
       setDeleteGroupConfirm(null);
       await fetchGroups();
-      await fetchUsers();
+      await fetchUsers(false);
     } catch (err) {
       setError(err.message);
     }
@@ -177,7 +176,7 @@ export default function Admin() {
 
   function openAssignGroupModal(user) {
     setAssignModalUser(user);
-    setAssignSelectedGroupId(user.groupId ? String(user.groupId) : "");
+    setAssignSelectedGroupId("");
   }
 
   function closeAssignGroupModal() {
@@ -185,26 +184,40 @@ export default function Admin() {
     setAssignSelectedGroupId("");
   }
 
-  async function handleAssignGroupSubmit(e) {
+  async function refreshAfterGroupChange() {
+    const [, freshUsers] = await Promise.all([fetchGroups(), fetchUsers(false)]);
+    if (assignModalUser && freshUsers) {
+      const updated = freshUsers.find((u) => u.id === assignModalUser.id);
+      if (updated) setAssignModalUser(updated);
+    }
+  }
+
+  async function handleAddToGroup(e) {
     e.preventDefault();
+    if (!assignModalUser || !assignSelectedGroupId) return;
+    setError("");
+    setAssignSubmitting(true);
+    try {
+      await assignUserToGroup(Number(assignSelectedGroupId), assignModalUser.id);
+      const gName = groups.find((g) => g.id === Number(assignSelectedGroupId))?.name;
+      setSuccess(gName ? `Added ${assignModalUser.firstName} to "${gName}".` : "User group updated.");
+      await refreshAfterGroupChange();
+      setAssignSelectedGroupId("");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAssignSubmitting(false);
+    }
+  }
+
+  async function handleRemoveFromGroup(groupId, groupName) {
     if (!assignModalUser) return;
     setError("");
     setAssignSubmitting(true);
     try {
-      if (!assignSelectedGroupId) {
-        await removeUserFromGroup(assignModalUser.id);
-        setSuccess(`Removed ${assignModalUser.firstName} from their group.`);
-      } else {
-        await assignUserToGroup(Number(assignSelectedGroupId), assignModalUser.id);
-        const groupName = groups.find((g) => g.id === Number(assignSelectedGroupId))?.name;
-        setSuccess(
-          groupName
-            ? `Assigned ${assignModalUser.firstName} to "${groupName}".`
-            : "User group updated.",
-        );
-      }
-      await Promise.all([fetchGroups(), fetchUsers()]);
-      closeAssignGroupModal();
+      await removeUserFromGroup(groupId, assignModalUser.id);
+      setSuccess(`Removed ${assignModalUser.firstName} from "${groupName}".`);
+      await refreshAfterGroupChange();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -234,16 +247,19 @@ export default function Admin() {
   //  USER MANAGEMENT HANDLERS
   // ══════════════════════════════════════
 
-  async function fetchUsers() {
-    setLoading(true);
+  async function fetchUsers(showSpinner = true) {
+    if (showSpinner) setLoading(true);
     setError("");
     try {
       const res = await getAllUsers();
-      setUsers(res.data || []);
+      const list = res.data || [];
+      setUsers(list);
+      return list;
     } catch (err) {
       setError(err.message);
+      return null;
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
   }
 
@@ -309,7 +325,7 @@ export default function Admin() {
         setSuccess("User updated successfully!");
       }
       closeModal();
-      fetchUsers();
+      fetchUsers(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -323,7 +339,7 @@ export default function Admin() {
       await deleteUser(userId);
       setSuccess("User deleted successfully!");
       setDeleteConfirm(null);
-      fetchUsers();
+      fetchUsers(false);
     } catch (err) {
       setError(err.message);
     }
@@ -592,7 +608,13 @@ export default function Admin() {
                         <div>
                           <dt>Group</dt>
                           <dd>
-                            {user.groupName ? (
+                            {user.groups && user.groups.length > 0 ? (
+                              <span className="ad-group-pills-wrap">
+                                {user.groups.map((g) => (
+                                  <span key={g.id} className="ad-group-pill">{g.name}</span>
+                                ))}
+                              </span>
+                            ) : user.groupName ? (
                               <span className="ad-group-pill">{user.groupName}</span>
                             ) : (
                               <span className="ad-group-pill ad-group-pill-empty">No group</span>
@@ -704,8 +726,12 @@ export default function Admin() {
                 {groups
                   .filter((g) => !groupSearch.trim() || (g.name || "").toLowerCase().includes(groupSearch.toLowerCase()))
                   .map((group) => {
-                    const totalTargeted = (group.members || []).reduce((s, m) => s + (m.targetedAmount || 0), 0);
-                    const totalDeposited = (group.members || []).reduce((s, m) => s + (m.depositedAmount || 0), 0);
+                    const groupMembers = users.filter((u) =>
+                      (u.groups && u.groups.some((g) => g.id === group.id))
+                      || u.groupId === group.id
+                      || u.groupName === group.name
+                    );
+                    const memberCount = group.memberCount || groupMembers.length;
                     return (
                       <article className="ad-group-card" key={group.id}>
                         <div className="ad-group-card-head">
@@ -713,30 +739,19 @@ export default function Admin() {
                             <span className="ad-group-card-name">{group.name}</span>
                             {group.description && <span className="ad-group-card-desc">{group.description}</span>}
                           </div>
-                          <span className="ad-group-card-count">{group.memberCount} {group.memberCount === 1 ? "member" : "members"}</span>
+                          <span className="ad-group-card-count">{memberCount} {memberCount === 1 ? "member" : "members"}</span>
                         </div>
 
-                        <dl className="ad-group-card-stats">
-                          <div>
-                            <dt>Targeted total</dt>
-                            <dd>₱{Number(totalTargeted).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</dd>
-                          </div>
-                          <div>
-                            <dt>Deposited total</dt>
-                            <dd>₱{Number(totalDeposited).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</dd>
-                          </div>
-                        </dl>
-
-                        {group.members && group.members.length > 0 ? (
+                        {groupMembers.length > 0 ? (
                           <ul className="ad-group-card-members">
-                            {group.members.slice(0, 4).map((m) => (
+                            {groupMembers.slice(0, 4).map((m) => (
                               <li key={m.id}>
-                                <span className="ad-group-card-member-avatar">{(m.firstName?.[0] || "") + (m.lastName?.[0] || "")}</span>
+                                <span className="ad-group-card-member-avatar">{(m.firstName?.[0] || "").toUpperCase()}{(m.lastName?.[0] || "").toUpperCase()}</span>
                                 <span className="ad-group-card-member-name">{m.firstName} {m.lastName}</span>
                               </li>
                             ))}
-                            {group.members.length > 4 && (
-                              <li className="ad-group-card-member-more">+{group.members.length - 4} more</li>
+                            {groupMembers.length > 4 && (
+                              <li className="ad-group-card-member-more">+{groupMembers.length - 4} more</li>
                             )}
                           </ul>
                         ) : (
@@ -975,45 +990,85 @@ export default function Admin() {
       )}
 
       {/* ── Assign / Change Group Modal ── */}
-      {assignModalUser !== null && (
-        <div className="ad-modal-overlay" onClick={closeAssignGroupModal}>
-          <div className="ad-modal-box ad-modal-narrow" onClick={(e) => e.stopPropagation()}>
-            <div className="ad-modal-head">
-              <h2>Assign group</h2>
-              <button className="ad-modal-close" onClick={closeAssignGroupModal}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-              </button>
-            </div>
-            <form onSubmit={handleAssignGroupSubmit} className="ad-modal-form">
-              <p className="ad-modal-subtitle">
-                Choose a group for <strong>{assignModalUser.firstName} {assignModalUser.lastName}</strong>.
-              </p>
-              <div className="ad-modal-field">
-                <label htmlFor="assignGroupSelect">Group</label>
-                <select
-                  id="assignGroupSelect"
-                  value={assignSelectedGroupId}
-                  onChange={(e) => setAssignSelectedGroupId(e.target.value)}
-                >
-                  <option value="">— No group (private) —</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>{g.name}</option>
-                  ))}
-                </select>
-              </div>
-              {groups.length === 0 && (
-                <p className="ad-modal-warn-text">No groups exist yet. Create one in the Groups tab first.</p>
-              )}
-              <div className="ad-modal-actions">
-                <button type="button" className="ad-btn-cancel" onClick={closeAssignGroupModal}>Cancel</button>
-                <button type="submit" className="ad-btn-submit" disabled={assignSubmitting}>
-                  {assignSubmitting ? <span className="ad-spinner-sm" /> : "Save"}
+      {assignModalUser !== null && (() => {
+        const currentUser = users.find((u) => u.id === assignModalUser.id) || assignModalUser;
+        const userGroups = currentUser.groups
+          ? groups.filter((g) => currentUser.groups.some((ug) => ug.id === g.id))
+          : groups.filter((g) => currentUser.groupId === g.id);
+        const userGroupIds = new Set(userGroups.map((g) => g.id));
+        const availableGroups = groups.filter((g) => !userGroupIds.has(g.id));
+        return (
+          <div className="ad-modal-overlay" onClick={closeAssignGroupModal}>
+            <div className="ad-modal-box ad-modal-narrow" onClick={(e) => e.stopPropagation()}>
+              <div className="ad-modal-head">
+                <h2>Manage groups</h2>
+                <button className="ad-modal-close" onClick={closeAssignGroupModal}>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                 </button>
               </div>
-            </form>
+              <div className="ad-modal-form">
+                <p className="ad-modal-subtitle">
+                  Manage groups for <strong>{assignModalUser.firstName} {assignModalUser.lastName}</strong>.
+                </p>
+
+                {userGroups.length > 0 && (
+                  <div className="ad-modal-field">
+                    <label>Current groups</label>
+                    <div className="ad-assign-group-list">
+                      {userGroups.map((g) => (
+                        <div key={g.id} className="ad-assign-group-item">
+                          <span className="ad-group-pill">{g.name}</span>
+                          <button
+                            type="button"
+                            className="ad-assign-group-remove"
+                            disabled={assignSubmitting}
+                            onClick={() => handleRemoveFromGroup(g.id, g.name)}
+                            title={`Remove from ${g.name}`}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {userGroups.length === 0 && (
+                  <p className="ad-modal-warn-text">Not in any group yet.</p>
+                )}
+
+                <form onSubmit={handleAddToGroup} className="ad-modal-form">
+                  <div className="ad-modal-field">
+                    <label htmlFor="assignGroupSelect">Add to group</label>
+                    <select
+                      id="assignGroupSelect"
+                      value={assignSelectedGroupId}
+                      onChange={(e) => setAssignSelectedGroupId(e.target.value)}
+                    >
+                      <option value="">— Select a group —</option>
+                      {availableGroups.map((g) => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {availableGroups.length === 0 && groups.length > 0 && (
+                    <p className="ad-modal-warn-text">Already in all groups.</p>
+                  )}
+                  {groups.length === 0 && (
+                    <p className="ad-modal-warn-text">No groups exist yet. Create one in the Groups tab first.</p>
+                  )}
+                  <div className="ad-modal-actions">
+                    <button type="button" className="ad-btn-cancel" onClick={closeAssignGroupModal}>Close</button>
+                    <button type="submit" className="ad-btn-submit" disabled={assignSubmitting || !assignSelectedGroupId}>
+                      {assignSubmitting ? <span className="ad-spinner-sm" /> : "Add to Group"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
